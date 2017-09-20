@@ -172,7 +172,7 @@ Command:
 1.13 What is the brand of the device that sent most of the packets? What is its
      IP address?
 Answer:
-    Brand: NETGEAR
+    Brand: NETGEAR (http://www.whatsmyip.org/mac-address-lookup/)
     IP address: 192.168.0.1
 Command:
     tcpdump -e -n -r hw1.pcap | cut -d ' ' -f2 | sort | uniq -c | sort -r -n -k 1,1 | head -1
