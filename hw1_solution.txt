@@ -7,6 +7,7 @@ Command: tcpdump -n -r hw1.pcap | wc -l
 Answer:
     ARP packets: 11304
     UDP packets: 18382
+
 Command:
     tcpdump arp -n -r hw1.pcap | wc -l
     tcpdump udp -n -r hw1.pcap | wc -l
@@ -82,14 +83,12 @@ Answer:
     169.254.255.255
     192.168.0.12
     192.168.0.200
-    192.168.0.200:
     192.168.0.255
     194.168.4.100
     216.137.63.121
     216.137.63.137
-    224.0.0.22:
+    224.0.0.22
     224.0.0.251
-    224.0.0.251:
     224.0.0.252
     224.0.0.253
     239.255.255.250
@@ -109,16 +108,32 @@ Answer:
     91.189.92.190
     92.240.68.152
 
-Command: tcpdump ip -n -r hw1.pcap | cut -d' ' -f5 | cut -d'.' -f1-4 | sort | uniq
+Command: tcpdump ip -n -r hw1.pcap | cut -d' ' -f5 | cut -d'.' -f1-4 | cut -d':' -f1 | sort | uniq
 
 
 1.7 What are the top-5 TCP and top-5 UDP destination ports?
 Answer:
     Top 5 TCP ports: 80, 54634, 49836, 47110, 40341
+
+        Port Number     Number of occurences
+            80                 727
+            54634              697
+            49836              346
+            47110              61
+            40341              36
+
     Top 5 UDP ports: 1900, 137, 5355, 5353, 138
+
+        Port Number     Number of occurences
+            1900              13178
+            137               1925
+            5355              1516
+            5353              840
+            138               399
+
 Command:
-    tcpdump tcp -n -r hw1.pcap | cut -d' ' -f5 | cut -d':' -f1 | cut -d'.' -f5 | sort | uniq -c | sort -n -r | head -5
-    tcpdump udp -n -r hw1.pcap | cut -d' ' -f5 | cut -d':' -f1 | cut -d'.' -f5 | sort | uniq -c | sort -n -r | head -5
+    tcpdump tcp -n -r hw1.pcap | cut -d' ' -f5 | cut -d':' -f1 | cut -d'.' -f5 | sort | uniq -c | sort -n -r | head -5 | awk '{printf "%-10s %s\n", $2, $1}'
+    tcpdump udp -n -r hw1.pcap | cut -d' ' -f5 | cut -d':' -f1 | cut -d'.' -f5 | sort | uniq -c | sort -n -r | head -5 | awk '{printf "%-10s %s\n", $2, $1}'
 
 
 1.8 How many TCP packets have the SYN flag set?
@@ -133,56 +148,268 @@ Command: tcpdump 'tcp[tcpflags]==2' -n -r hw1.pcap | wc -l
 1.10 Towards which ports were TCP connection attempts made? How many attempts
      per port?
 Answer:
-    443  (1 attempt)
-    465  (1 attempt)
-    80   (33 attempts)
-    9100 (2 attempts)
+    Port Number     Attempts
+        443             1
+        465             1
+        80              33
+        9100            2
 
-Command: tcpdump 'tcp[tcpflags]==2' -n -r hw1.pcap | cut -d' ' -f5 | cut -d':' -f1| cut -d'.' -f5 | sort | uniq -c
+Command: tcpdump 'tcp[tcpflags]==2' -n -r hw1.pcap | cut -d' ' -f5 | cut -d':' -f1| cut -d'.' -f5 | sort | uniq -c | awk '{printf "%-10s %s\n", $2, $1}'
 
 
 1.11 How many HTTP GET requests were made? Print the URLs of all HTTP requests
      for JPG files.
 Answer:
     Number of HTTP GET requests: 94
-    Urls HTTP requests for JPG files:
-        http://pic.leech.it/i/f166c/479246b0asttas.jpg
+    Urls of HTTP requests for JPG files:
         http://pic.leech.it/i/f166c/479246b0asttas.jpg
         /i/f166c/479246b0asttas.jpg
-        /i/f166c/479246b0asttas.jpg
-        http://ecx.images-amazon.com/images/I/41oZ1XsiOAL._SL500_AA300_.jpg
         http://ecx.images-amazon.com/images/I/41oZ1XsiOAL._SL500_AA300_.jpg
         http://www.nature.com/news/2009/090527/images/459492a-i1.0.jpg
-        http://www.nature.com/news/2009/090527/images/459492a-i1.0.jpg
         /news/2009/090527/images/459492a-i1.0.jpg
-        /news/2009/090527/images/459492a-i1.0.jpg
+
 Command:
-tcpdump 'tcp[((tcp[12:1] & 0xf0) >> 2):4] = 0x47455420' -n -r hw1.pcap| wc -l
-tcpdump -n -A '(tcp port http) && (tcp[32:4] = 0x47455420)' -r hw1.pcap | rev | cut -d' ' -f2 | rev | awk -F "." '$NF=="jpg"'
+    tcpdump 'tcp[((tcp[12:1] & 0xf0) >> 2):4] = 0x47455420' -n -r hw1.pcap| wc -l
+    tcpdump -n '(tcp port http) && (tcp[32:4] = 0x47455420)' -r hw1.pcap | rev | cut -d' ' -f2 | rev | awk -F "." '$NF=="jpg"'
 
 
-1.12 When (date and time) was the first and last packet of the trace sent?
+1.12 When (date and time) was the first and last packet of the trace sent? (Date and Time) (Wrong)
 Answer:
-    DateTime of first packet: 00:00:00.246436
-    DateTime of last packet:  23:59:59.939117
+    DateTime of first packet: 2013-01-12 12:37:42.871346
+    DateTime of last packet:  2013-01-14 14:27:03.691498
 Command:
-    tcpdump -n -r hw1.pcap | cut -d ' ' -f1 | sort -n | head -1
-    tcpdump -n -r hw1.pcap | cut -d ' ' -f1 | sort -n | tail -1
+    tcpdump -n -tttt -r hw1.pcap | head -1
+    tcpdump -n -tttt -r hw1.pcap | tail -1
 
 1.13 What is the brand of the device that sent most of the packets? What is its
      IP address?
 Answer:
-    Brand: NETGEAR (http://www.whatsmyip.org/mac-address-lookup/)
+    Brand: NETGEAR (https://macvendors.com)
     IP address: 192.168.0.1
 Command:
-    tcpdump -e -n -r hw1.pcap | cut -d ' ' -f2 | sort | uniq -c | sort -r -n -k 1,1 | head -1
+    tcpdump -e -n -r hw1.pcap | cut -d ' ' -f2 | sort | uniq -c | sort -n -r | cut -d ' ' -f2 | head -1
     tcpdump -n ether src c4:3d:c7:17:6f:9b -r hw1.pcap | head
 
 1.14 Report the distribution of Ethernet packet sizes (how many packets of size
      X exist in the trace, for all values of X in the trace).
 Answer:
-    Number of packets   Packet size
-        8                   28
-        10858               46
-        4                   300
-Command: tcpdump -n -r hw1.pcap | awk '{if ($8 == "length") print $NF}' | sort -n | uniq -c
+    Packet size     Number of packets
+        1102               1
+        1162               1
+        1170               1
+        1179               1
+        1218               1
+        144                1
+        1469               1
+        156                1
+        171                1
+        178                1
+        195                1
+        207                1
+        223                1
+        306                1
+        308                1
+        312                1
+        317                1
+        320                1
+        335                1
+        347                1
+        372                1
+        374                1
+        389                1
+        396                1
+        412                1
+        417                1
+        428                1
+        429                1
+        432                1
+        433                1
+        446                1
+        479                1
+        482                1
+        506                1
+        518                1
+        535                1
+        54                 1
+        544                1
+        548                1
+        552                1
+        568                1
+        588                1
+        592                1
+        596                1
+        601                1
+        608                1
+        640                1
+        678                1
+        679                1
+        690                1
+        694                1
+        72                 1
+        730                1
+        746                1
+        752                1
+        760                1
+        926                1
+        952                1
+        979                1
+        105                2
+        111                2
+        1212               2
+        129                2
+        184                2
+        208                2
+        220                2
+        229                2
+        236                2
+        252                2
+        255                2
+        257                2
+        261                2
+        265                2
+        266                2
+        268                2
+        288                2
+        294                2
+        305                2
+        309                2
+        310                2
+        321                2
+        383                2
+        418                2
+        478                2
+        502                2
+        546                2
+        550                2
+        590                2
+        593                2
+        598                2
+        607                2
+        611                2
+        612                2
+        614                2
+        615                2
+        621                2
+        624                2
+        630                2
+        636                2
+        704                2
+        77                 2
+        93                 2
+        94                 2
+        95                 2
+        233                3
+        247                3
+        269                3
+        298                3
+        344                3
+        497                3
+        70                 3
+        1035               4
+        106                4
+        124                4
+        170                4
+        177                4
+        244                4
+        254                4
+        267                4
+        322                4
+        345                4
+        346                4
+        65                 4
+        79                 4
+        85                 4
+        89                 4
+        329                5
+        613                5
+        628                5
+        817                5
+        88                 5
+        1034               6
+        264                6
+        282                6
+        333                6
+        350                6
+        610                6
+        69                 6
+        76                 6
+        125                7
+        149                7
+        328                7
+        68                 8
+        75                 8
+        816                8
+        248                9
+        284                9
+        107                10
+        154                10
+        330                10
+        332                10
+        476                10
+        485                10
+        528                10
+        540                10
+        542                10
+        556                10
+        142                11
+        168                12
+        307                12
+        666                12
+        489                13
+        62                 13
+        90                 13
+        87                 14
+        127                15
+        302                15
+        245                16
+        202                17
+        551                17
+        246                22
+        698                22
+        315                24
+        42                 24
+        119                28
+        602                32
+        460                33
+        231                36
+        219                39
+        1033               40
+        84                 43
+        82                 52
+        81                 54
+        249                56
+        165                60
+        167                62
+        326                85
+        398                85
+        318                86
+        362                86
+        394                86
+        390                87
+        392                87
+        74                 87
+        338                88
+        386                88
+        120                121
+        175                146
+        541                155
+        527                158
+        555                161
+        539                162
+        475                164
+        484                165
+        110                180
+        63                 232
+        243                279
+        342                326
+        91                 341
+        64                 887
+        1514               1034
+        66                 1046
+        60                 12190
+        92                 1740
+        340                2749
+        405                2758
+        395                2759
+        331                2773
+Command: tcpdump -e -n -r hw1.pcap | cut -d ' ' -f9 | cut -d ':' -f1 | sort | uniq -c | sort | awk '{ printf "%-10s %s\n", $2, $1 }'
