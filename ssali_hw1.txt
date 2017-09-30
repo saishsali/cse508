@@ -1,24 +1,28 @@
+Name: Saish Sali
+Net ID: ssali
+
 1.1 How many packets does the trace contain?
-Answer: 32664
-Command: tcpdump -n -r hw1.pcap | wc -l
+Answer:
+    Number of packets: 32664
+    Command: tcpdump -n -r hw1.pcap | wc -l
 
 
 1.2 How many ARP packets and how many UDP packets?
 Answer:
     ARP packets: 11304
-    UDP packets: 18382
+    Command: tcpdump arp -n -r hw1.pcap | wc -l
 
-Command:
-    tcpdump arp -n -r hw1.pcap | wc -l
-    tcpdump udp -n -r hw1.pcap | wc -l
+    UDP packets: 18382
+    Command: tcpdump udp -n -r hw1.pcap | wc -l
 
 
 1.3 How many packets were exchanged between 192.168.0.200 and 91.189.90.40?
-Answer: 28
-Command: tcpdump "(src 192.168.0.200 and dst 91.189.90.40) or (src 91.189.90.40 and dst 192.168.0.200)" -n -r hw1.pcap | wc -l
+Answer:
+    Number of packets exchanged: 28
+    Command: tcpdump "(src 192.168.0.200 and dst 91.189.90.40) or (src 91.189.90.40 and dst 192.168.0.200)" -n -r hw1.pcap | wc -l
 
 
-1.4 Print the unique source IP addresses found in the trace. (Wrong)
+1.4 Print the unique source IP addresses found in the trace.
 Answer:
     0.0.0.0
     1.234.31.20
@@ -54,11 +58,10 @@ Answer:
     91.189.92.190
     92.240.68.152
 
-Command: tcpdump ip -n -r hw1.pcap | cut -d' ' -f3 | cut -d'.' -f1-4 | sort | uniq
+    Command: tcpdump ip -n -r hw1.pcap | cut -d' ' -f3 | cut -d'.' -f1-4 | sort | uniq
 
 
-1.5 Print the unique private network (according to RFC1918) source IP
-     addresses found in the trace. (Wrong)
+1.5 Print the unique private network (according to RFC1918) source IP addresses found in the trace.
 Answer:
     192.168.0.1
     192.168.0.10
@@ -71,10 +74,10 @@ Answer:
     192.168.0.6
     192.168.0.7
 
-Command: tcpdump ip -n -r hw1.pcap | cut -d' ' -f3 | cut -d'.' -f1-4 | sort | uniq | awk -F. '$1 == 10 || ($1 == 172 && $2 >=16 && $2 <=31) || ($1 == 192 && $2 == 168)'
+    Command: tcpdump ip -n -r hw1.pcap | cut -d' ' -f3 | cut -d'.' -f1-4 | sort | uniq | awk -F. '$1 == 10 || ($1 == 172 && $2 >=16 && $2 <=31) || ($1 == 192 && $2 == 168)'
 
 
-1.6 Print the unique destination IP addresses found in the trace. (Wrong)
+1.6 Print the unique destination IP addresses found in the trace.
 Answer:
     1.234.31.20
     122.154.101.54
@@ -108,7 +111,7 @@ Answer:
     91.189.92.190
     92.240.68.152
 
-Command: tcpdump ip -n -r hw1.pcap | cut -d' ' -f5 | cut -d'.' -f1-4 | cut -d':' -f1 | sort | uniq
+    Command: tcpdump ip -n -r hw1.pcap | cut -d' ' -f5 | cut -d'.' -f1-4 | cut -d':' -f1 | sort | uniq
 
 
 1.7 What are the top-5 TCP and top-5 UDP destination ports?
@@ -122,6 +125,8 @@ Answer:
             47110              61
             40341              36
 
+    Command: tcpdump tcp -n -r hw1.pcap | cut -d' ' -f5 | cut -d':' -f1 | cut -d'.' -f5 | sort | uniq -c | sort -n -r | head -5 | awk '{printf "%-10s %s\n", $2, $1}'
+
     Top 5 UDP ports: 1900, 137, 5355, 5353, 138
 
         Port Number     Number of occurences
@@ -131,62 +136,68 @@ Answer:
             5353              840
             138               399
 
-Command:
-    tcpdump tcp -n -r hw1.pcap | cut -d' ' -f5 | cut -d':' -f1 | cut -d'.' -f5 | sort | uniq -c | sort -n -r | head -5 | awk '{printf "%-10s %s\n", $2, $1}'
-    tcpdump udp -n -r hw1.pcap | cut -d' ' -f5 | cut -d':' -f1 | cut -d'.' -f5 | sort | uniq -c | sort -n -r | head -5 | awk '{printf "%-10s %s\n", $2, $1}'
+    Command: tcpdump udp -n -r hw1.pcap | cut -d' ' -f5 | cut -d':' -f1 | cut -d'.' -f5 | sort | uniq -c | sort -n -r | head -5 | awk '{printf "%-10s %s\n", $2, $1}'
 
 
 1.8 How many TCP packets have the SYN flag set?
-Answer: 75
-Command: tcpdump 'tcp[tcpflags] & tcp-syn != 0' -n -r hw1.pcap | wc -l
+Answer:
+    Number of TCP packets having SYN flag set: 75
+    Command: tcpdump 'tcp[tcpflags] & tcp-syn != 0' -n -r hw1.pcap | wc -l
 
 
 1.9 How many TCP connection attempts were made?
-Answer: 37
-Command: tcpdump 'tcp[tcpflags]==2' -n -r hw1.pcap | wc -l
+Answer:
+    Number of TCP connection attempts made: 37
+    Command: tcpdump 'tcp[tcpflags]==2' -n -r hw1.pcap | wc -l
+
 
 1.10 Towards which ports were TCP connection attempts made? How many attempts
      per port?
 Answer:
+    Ports towards which TCP connection attemps made: 443, 465, 9100, 80
+
     Port Number     Attempts
         443             1
         465             1
-        80              33
         9100            2
+        80              33
 
-Command: tcpdump 'tcp[tcpflags]==2' -n -r hw1.pcap | cut -d' ' -f5 | cut -d':' -f1| cut -d'.' -f5 | sort | uniq -c | awk '{printf "%-10s %s\n", $2, $1}'
+    Command: tcpdump 'tcp[tcpflags]==2' -n -r hw1.pcap | cut -d' ' -f5 | cut -d':' -f1| cut -d'.' -f5 | sort | uniq -c | awk '{printf "%-10s %s\n", $2, $1}' | sort -n -k 2
 
 
 1.11 How many HTTP GET requests were made? Print the URLs of all HTTP requests
      for JPG files. (Wrong)
 Answer:
     Number of HTTP GET requests: 94
+    Command: tcpdump 'tcp[((tcp[12:1] & 0xf0) >> 2):4] = 0x47455420' -n -r hw1.pcap| wc -l
+
     Urls of HTTP requests for JPG files:
         http://pic.leech.it/i/f166c/479246b0asttas.jpg
         http://ecx.images-amazon.com/images/I/41oZ1XsiOAL._SL500_AA300_.jpg
         http://www.nature.com/news/2009/090527/images/459492a-i1.0.jpg
 
-Command:
-    tcpdump 'tcp[((tcp[12:1] & 0xf0) >> 2):4] = 0x47455420' -n -r hw1.pcap| wc -l
-    tcpdump -n '(tcp port http) && (tcp[32:4] = 0x47455420)' -r hw1.pcap | rev | cut -d' ' -f2 | rev | awk -F "." '$NF=="jpg"' | grep http
+    Command: tcpdump -n '(tcp port http) && (tcp[32:4] = 0x47455420)' -r hw1.pcap | rev | cut -d' ' -f2 | rev | awk -F "." '$NF=="jpg"' | grep http
 
 
 1.12 When (date and time) was the first and last packet of the trace sent? (Date and Time)
 Answer:
     DateTime of first packet: 2013-01-12 12:37:42.871346
-    DateTime of last packet:  2013-01-14 14:27:03.691498
-Command:
-    tcpdump -n -tttt -r hw1.pcap | head -1
-    tcpdump -n -tttt -r hw1.pcap | tail -1
+    Command: tcpdump -n -tttt -r hw1.pcap | head -1
 
-1.13 What is the brand of the device that sent most of the packets? What is its
-     IP address?
+    DateTime of last packet:  2013-01-14 14:27:03.691498
+    Command: tcpdump -n -tttt -r hw1.pcap | tail -1
+
+
+1.13 What is the brand of the device that sent most of the packets? What is its IP address?
 Answer:
-    Brand: NETGEAR (https://macvendors.com)
+    Brand: NETGEAR
+    Command (To find mac address of the device that sent most of the packets): tcpdump -e -n -r hw1.pcap | cut -d ' ' -f2 | sort | uniq -c | sort -n -r | cut -d ' ' -f2 | head -1
+    Mac address: c4:3d:c7:17:6f:9b
+    Find mac address vendor from https://macvendors.com
+
     IP address: 192.168.0.1
-Command:
-    tcpdump -e -n -r hw1.pcap | cut -d ' ' -f2 | sort | uniq -c | sort -n -r | cut -d ' ' -f2 | head -1
-    tcpdump -n ether src c4:3d:c7:17:6f:9b -r hw1.pcap | head
+    Command: tcpdump -n ether src c4:3d:c7:17:6f:9b -r hw1.pcap | head
+
 
 1.14 Report the distribution of Ethernet packet sizes (how many packets of size
      X exist in the trace, for all values of X in the trace).
@@ -411,4 +422,4 @@ Answer:
         331                 2773
         60                  12190
 
-Command: tcpdump -e -n -r hw1.pcap | cut -d ' ' -f9 | cut -d ':' -f1 | sort | uniq -c | sort -n | awk '{ printf "%-10s %s\n", $2, $1 }'
+    Command: tcpdump -e -n -r hw1.pcap | cut -d ' ' -f9 | cut -d ':' -f1 | sort | uniq -c | sort -n | awk '{ printf "%-10s %s\n", $2, $1 }'
