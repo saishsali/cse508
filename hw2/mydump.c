@@ -348,6 +348,13 @@ int main(int argc, char *argv[]) {
         if (pcap_datalink(handle) != DLT_EN10MB) {
             fprintf(stderr, "Interface %s doesn't supply Ethernet headers - not supported\n", interface);
         }
+    } else if (file != NULL) {
+        handle = pcap_open_offline(file, error_buffer);
+
+        if (handle == NULL) {
+            fprintf(stderr, "Couldn't open file %s: %s\n", file, error_buffer);
+            return -1;
+        }
     }
 
     if (expression != NULL) {
