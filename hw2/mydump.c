@@ -1,13 +1,19 @@
+/*
+    References:
+    - http://www.tcpdump.org/pcap.html
+*/
+
 #include <stdio.h>
+#include <stdlib.h>
 #include <pcap.h>
 #include <unistd.h>
 #include <netinet/in.h>
 #include <time.h>
 #include <string.h>
 #include <ctype.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
 #include <arpa/inet.h>
+
+#define SIZE           1024
 
 /* Ethernet addresses are 6 bytes */
 #define ETHER_ADDR_LEN 6
@@ -121,8 +127,8 @@ void print_hex_ascii_line(const u_char *payload, int length, int offset)
     printf("\n");
 }
 
-
-void print_payload(const u_char *payload, int length) {
+void print_payload(const u_char *payload) {
+    int length = strlen((char *)payload);
     int length_remaining = length;
     int line_width = 16;
     int line_length;
@@ -163,6 +169,30 @@ void print_payload(const u_char *payload, int length) {
     }
 }
 
+int check_pattern(const u_char *payload, u_char *str) {
+    const u_char *ch = payload;
+    int length = strlen((char *)payload), i;
+    u_char *ascii_payload = (u_char *)malloc(sizeof(u_char) * length);
+
+    if (str == NULL) {
+        return 1;
+    }
+
+    for (i = 0; i < length; i++) {
+        if (isprint(*ch))
+            ascii_payload[i] = *ch;
+        else
+            ascii_payload[i] = '.';
+        ch++;
+    }
+    ascii_payload[i] = '\0';
+
+    if (strstr((char *)ascii_payload, (char *)str) == NULL) {
+        return 0;
+    }
+
+    return 1;
+}
 
 void print_timestamp(const struct pcap_pkthdr *header) {
     time_t time = (time_t)(header->ts.tv_sec);
@@ -200,7 +230,8 @@ void process_packet(u_char *args, const struct pcap_pkthdr *header, const u_char
     const sniff_ip *ip;             /* The IP header */
     const sniff_tcp *tcp;           /* The TCP header */
     const sniff_udp *udp;           /* The UDP header */
-    const u_char *payload;            /* Packet payload */
+    u_char *payload;                /* Packet payload */
+    char buffer[SIZE];
 
     int size_ip;
     int size_tcp;
@@ -208,15 +239,11 @@ void process_packet(u_char *args, const struct pcap_pkthdr *header, const u_char
     int size_icmp;
     int size_payload;
 
-    print_timestamp(header);
-
     /* Define ethernet header */
     ethernet = (sniff_ethernet *)packet;
 
-    print_mac_address((sniff_ethernet *)ethernet);
-
     if (ntohs(ethernet->ether_type) == ETHERTYPE_IPV4) {
-        printf("Ethertype: IPV4\n");
+        sprintf(buffer, "Ethertype: IPV4\n");
 
          /* Define IP header offset */
         ip = (sniff_ip *)(packet + SIZE_ETHERNET);
@@ -226,13 +253,13 @@ void process_packet(u_char *args, const struct pcap_pkthdr *header, const u_char
             return;
         }
 
-        printf("Source IP address: %s\n", inet_ntoa(ip->ip_src));
-        printf("Destination IP address: %s\n", inet_ntoa(ip->ip_dst));
-        printf("Packet length: %d\n", ntohs(ip->ip_len));
+        sprintf(buffer, "Source IP address: %s\n", inet_ntoa(ip->ip_src));
+        sprintf(buffer, "Destination IP address: %s\n", inet_ntoa(ip->ip_dst));
+        sprintf(buffer, "Packet length: %d\n", ntohs(ip->ip_len));
 
         switch (ip->ip_p) {
             case IPPROTO_TCP:
-                printf("Protocol Type: TCP\n");
+                sprintf(buffer, "Protocol Type: TCP\n");
                 tcp = (sniff_tcp *)(packet + SIZE_ETHERNET + size_ip);
                 size_tcp = TH_OFF(tcp) * 4;
                 if (size_tcp < 20) {
@@ -240,51 +267,56 @@ void process_packet(u_char *args, const struct pcap_pkthdr *header, const u_char
                     return;
                 }
 
-                printf("Source Port: %d\n", ntohs(tcp->th_sport));
-                printf("Destination Port: %d\n", ntohs(tcp->th_dport));
+                sprintf(buffer, "Source Port: %d\n", ntohs(tcp->th_sport));
+                sprintf(buffer, "Destination Port: %d\n", ntohs(tcp->th_dport));
 
                 payload = (u_char *)(packet + SIZE_ETHERNET + size_ip + size_tcp);
                 size_payload = ntohs(ip->ip_len) - (size_ip + size_tcp);
                 break;
             case IPPROTO_UDP:
-                printf("Protocol Type: UDP\n");
+                sprintf(buffer, "Protocol Type: UDP\n");
                 udp = (sniff_udp *)(packet + SIZE_ETHERNET + size_ip);
                 size_udp = 8;
 
-                printf("Source Port: %d\n", ntohs(udp->uh_sport));
-                printf("Destination Port: %d\n", ntohs(udp->uh_dport));
+                sprintf(buffer, "Source Port: %d\n", ntohs(udp->uh_sport));
+                sprintf(buffer, "Destination Port: %d\n", ntohs(udp->uh_dport));
 
                 payload = (u_char *)(packet + SIZE_ETHERNET + size_ip + size_udp);
                 size_payload = ntohs(ip->ip_len) - (size_ip + size_udp);
                 break;
             case IPPROTO_ICMP:
-                printf("Protocol Type: ICMP\n");
+                sprintf(buffer, "Protocol Type: ICMP\n");
                 size_icmp = 8;
                 payload = (u_char *)(packet + SIZE_ETHERNET + size_ip + size_icmp);
                 size_payload = ntohs(ip->ip_len) - (size_ip + size_icmp);
                 break;
             case IPPROTO_IP:
-                printf("Protocol Type: IP\n");
+                sprintf(buffer, "Protocol Type: IP\n");
                 payload = (u_char *)(packet + SIZE_ETHERNET + size_ip);
                 size_payload = ntohs(ip->ip_len) - size_ip;
                 break;
             default:
-                printf("Protocol Type: OTHER\n");
+                sprintf(buffer, "Protocol Type: OTHER\n");
                 payload = (u_char *)(packet + SIZE_ETHERNET + size_ip);
                 size_payload = ntohs(ip->ip_len) - size_ip;
         }
 
         if (size_payload > 0) {
-            print_payload(payload, size_payload);
+            payload[size_payload] = '\0';
+            if (check_pattern(payload, args) == 1) {
+                print_timestamp(header);
+                print_mac_address((sniff_ethernet *)ethernet);
+                printf("%s", buffer);
+                print_payload(payload);
+                printf("\n");
+            }
         }
 
     } else if (ntohs(ethernet->ether_type) == ETHERTYPE_ARP) {
-        printf("Ethertype: ARP\n");
+        printf("Ethertype: ARP\n\n");
     } else {
-        printf("Ethertype: Unknown\n");
+        printf("Ethertype: Unknown\n\n");
     }
-
-    printf("\n");
 }
 
 
