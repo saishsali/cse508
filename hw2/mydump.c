@@ -26,6 +26,21 @@
 #define ETHERTYPE_ARP  0x0806
 #define ETHERTYPE_IPV4 0x0800
 
+#define ARP_REQUEST 1   /* ARP Request             */
+#define ARP_REPLY 2     /* ARP Reply               */
+
+typedef struct arphdr {
+    u_int16_t htype;    /* Hardware Type           */
+    u_int16_t ptype;    /* Protocol Type           */
+    u_char hlen;        /* Hardware Address Length */
+    u_char plen;        /* Protocol Address Length */
+    u_int16_t oper;     /* Operation Code          */
+    u_char sha[6];      /* Sender hardware address */
+    u_char spa[4];      /* Sender IP address       */
+    u_char tha[6];      /* Target hardware address */
+    u_char tpa[4];      /* Target IP address       */
+}arphdr_t;
+
 
 /* Ethernet header */
 typedef struct sniff_ethernet {
@@ -233,17 +248,17 @@ void process_packet(u_char *args, const struct pcap_pkthdr *header, const u_char
     const sniff_ip *ip;             /* The IP header */
     const sniff_tcp *tcp;           /* The TCP header */
     const sniff_udp *udp;           /* The UDP header */
-    u_char *payload;                /* Packet payload */
+    const arphdr_t *arp;
+    u_char *payload = NULL;         /* Packet payload */
     char buffer[SIZE];
 
-    int size_ip, size_tcp, size_udp, size_icmp, size_payload;
+    int size_ip, size_tcp, size_udp, size_icmp, size_payload = 0, flag = 0, i;
 
     /* Define ethernet header */
     ethernet = (sniff_ethernet *)packet;
     sprintf(buffer, "type 0x%x ", ntohs(ethernet->ether_type));
 
     if (ntohs(ethernet->ether_type) == ETHERTYPE_IPV4) {
-
          /* Define IP header offset */
         ip = (sniff_ip *)(packet + SIZE_ETHERNET);
         size_ip = IP_HL(ip) * 4;
@@ -289,21 +304,45 @@ void process_packet(u_char *args, const struct pcap_pkthdr *header, const u_char
                 size_payload = ntohs(ip->ip_len) - size_ip;
         }
 
-        if (size_payload > 0) {
-            payload[size_payload] = '\0';
-            if (check_pattern(payload, args) == 1) {
-                print_timestamp(header);
-                print_mac_address((sniff_ethernet *)ethernet);
-                printf("%s", buffer);
-                print_payload(payload);
-                printf("\n");
+        if (check_pattern(payload, args) == 1) {
+            flag = 1;
+        }
+    } else if (ntohs(ethernet->ether_type) == ETHERTYPE_ARP) {
+        arp = (arphdr_t *)(packet + SIZE_ETHERNET);
+        // 46 bytes is the minimum amount of user data permitted in an Ethernet packet
+        // ARP message 28 bytes + frame overhead 18 bytes = 46 bytes
+        sprintf(buffer + strlen(buffer), "len 46\n");
+        for(i = 0; i < 4; i++) {
+            sprintf(buffer + strlen(buffer), "%d", arp->spa[i]);
+            if (i != 3) {
+                sprintf(buffer + strlen(buffer), ".");
             }
         }
 
-    } else if (ntohs(ethernet->ether_type) == ETHERTYPE_ARP) {
-        printf("Ethertype: ARP\n\n");
+        sprintf(buffer + strlen(buffer), " -> ");
+
+        for(i = 0; i < 4; i++) {
+            sprintf(buffer + strlen(buffer), "%d", arp->tpa[i]);
+            if (i != 3) {
+                sprintf(buffer + strlen(buffer), ".");
+            }
+        }
+
+        sprintf(buffer + strlen(buffer), " ARP %s", (ntohs(arp->oper) == ARP_REQUEST)? "Request" : "Reply");
+        flag = 1;
     } else {
         printf("Ethertype: Unknown\n\n");
+    }
+
+    if (flag == 1) {
+        print_timestamp(header);
+        print_mac_address((sniff_ethernet *)ethernet);
+        printf("%s", buffer);
+        if (size_payload > 0) {
+            payload[size_payload] = '\0';
+            print_payload(payload);
+        }
+        printf("\n");
     }
 }
 
