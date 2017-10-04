@@ -138,6 +138,7 @@ void print_payload(const u_char *payload) {
     if (length <= 0)
         return;
 
+    printf("\n");
     if (length <= line_width) {
         print_hex_ascii_line(ch, length, offset);
         return;
@@ -214,7 +215,6 @@ void print_mac_address(sniff_ethernet *ethernet) {
         if (i != ETHER_ADDR_LEN - 1)
             printf(":");
     }
-
     printf(" -> ");
 
     ch = ethernet->ether_dhost;
@@ -224,7 +224,7 @@ void print_mac_address(sniff_ethernet *ethernet) {
         if (i != ETHER_ADDR_LEN - 1)
             printf(":");
     }
-    printf("\n");
+    printf(" ");
 }
 
 void process_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *packet) {
@@ -236,11 +236,7 @@ void process_packet(u_char *args, const struct pcap_pkthdr *header, const u_char
     u_char *payload;                /* Packet payload */
     char buffer[SIZE];
 
-    int size_ip;
-    int size_tcp;
-    int size_udp;
-    int size_icmp;
-    int size_payload;
+    int size_ip, size_tcp, size_udp, size_icmp, size_payload;
 
     /* Define ethernet header */
     ethernet = (sniff_ethernet *)packet;
@@ -256,13 +252,11 @@ void process_packet(u_char *args, const struct pcap_pkthdr *header, const u_char
             return;
         }
 
-        sprintf(buffer + strlen(buffer), "Packet length: %d\n", ntohs(ip->ip_len));
-        sprintf(buffer + strlen(buffer), "Source IP address: %s\n", inet_ntoa(ip->ip_src));
-        sprintf(buffer + strlen(buffer), "Destination IP address: %s\n", inet_ntoa(ip->ip_dst));
+        sprintf(buffer + strlen(buffer), "len %d\n", ntohs(ip->ip_len));
+        sprintf(buffer + strlen(buffer), "%s", inet_ntoa(ip->ip_src));
 
         switch (ip->ip_p) {
             case IPPROTO_TCP:
-                sprintf(buffer + strlen(buffer), "Protocol Type: TCP\n");
                 tcp = (sniff_tcp *)(packet + SIZE_ETHERNET + size_ip);
                 size_tcp = TH_OFF(tcp) * 4;
                 if (size_tcp < 20) {
@@ -270,24 +264,22 @@ void process_packet(u_char *args, const struct pcap_pkthdr *header, const u_char
                     return;
                 }
 
-                sprintf(buffer + strlen(buffer), "Source Port: %d\n", ntohs(tcp->th_sport));
-                sprintf(buffer + strlen(buffer), "Destination Port: %d\n", ntohs(tcp->th_dport));
+                sprintf(buffer + strlen(buffer), ".%d -> %s.%d TCP", ntohs(tcp->th_sport), inet_ntoa(ip->ip_dst), ntohs(tcp->th_dport));
 
                 payload = (u_char *)(packet + SIZE_ETHERNET + size_ip + size_tcp);
                 size_payload = ntohs(ip->ip_len) - (size_ip + size_tcp);
                 break;
             case IPPROTO_UDP:
-                sprintf(buffer + strlen(buffer), "Protocol Type: UDP\n");
                 udp = (sniff_udp *)(packet + SIZE_ETHERNET + size_ip);
                 size_udp = 8;
 
-                sprintf(buffer + strlen(buffer), "Source Port: %d\n", ntohs(udp->uh_sport));
-                sprintf(buffer + strlen(buffer), "Destination Port: %d\n", ntohs(udp->uh_dport));
+                sprintf(buffer + strlen(buffer), ".%d -> %s.%d UDP", ntohs(udp->uh_sport), inet_ntoa(ip->ip_dst), ntohs(udp->uh_dport));
 
                 payload = (u_char *)(packet + SIZE_ETHERNET + size_ip + size_udp);
                 size_payload = ntohs(ip->ip_len) - (size_ip + size_udp);
                 break;
             case IPPROTO_ICMP:
+                sprintf(buffer + strlen(buffer), "-> %s ICMP", inet_ntoa(ip->ip_dst));
                 size_icmp = 8;
                 payload = (u_char *)(packet + SIZE_ETHERNET + size_ip + size_icmp);
                 size_payload = ntohs(ip->ip_len) - (size_ip + size_icmp);
@@ -303,7 +295,6 @@ void process_packet(u_char *args, const struct pcap_pkthdr *header, const u_char
                 print_timestamp(header);
                 print_mac_address((sniff_ethernet *)ethernet);
                 printf("%s", buffer);
-                printf("Payload:\n");
                 print_payload(payload);
                 printf("\n");
             }
