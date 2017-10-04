@@ -195,9 +195,12 @@ int check_pattern(const u_char *payload, u_char *str) {
 }
 
 void print_timestamp(const struct pcap_pkthdr *header) {
-    time_t time = (time_t)(header->ts.tv_sec);
-    char *timestamp = ctime(&time);
-    printf("Timestamp: %s", timestamp);
+    struct tm *tm_info;
+    char timestamp[20];
+    time_t timer = (time_t)(header->ts.tv_sec);
+    tm_info = localtime(&timer);
+    strftime(timestamp, 50, "%Y-%m-%d %H:%M:%S", tm_info);
+    printf("%s.%06ld ", timestamp, (long int)header->ts.tv_usec);
 }
 
 void print_mac_address(sniff_ethernet *ethernet) {
@@ -205,18 +208,18 @@ void print_mac_address(sniff_ethernet *ethernet) {
     int i;
 
     ch = ethernet->ether_shost;
-    printf("Source MAC Address: ");
     for(i = 0; i < ETHER_ADDR_LEN; i++) {
-        printf("%x", *ch);
+        printf("%02x", *ch);
         ch++;
         if (i != ETHER_ADDR_LEN - 1)
             printf(":");
     }
 
-    printf("\nDestination MAC Address: ");
+    printf(" -> ");
+
     ch = ethernet->ether_dhost;
     for(i = 0; i < ETHER_ADDR_LEN; i++) {
-        printf("%x", *ch);
+        printf("%02x", *ch);
         ch++;
         if (i != ETHER_ADDR_LEN - 1)
             printf(":");
@@ -241,9 +244,9 @@ void process_packet(u_char *args, const struct pcap_pkthdr *header, const u_char
 
     /* Define ethernet header */
     ethernet = (sniff_ethernet *)packet;
+    sprintf(buffer, "type 0x%x ", ntohs(ethernet->ether_type));
 
     if (ntohs(ethernet->ether_type) == ETHERTYPE_IPV4) {
-        sprintf(buffer, "Ethertype: IPV4\n");
 
          /* Define IP header offset */
         ip = (sniff_ip *)(packet + SIZE_ETHERNET);
@@ -285,13 +288,11 @@ void process_packet(u_char *args, const struct pcap_pkthdr *header, const u_char
                 size_payload = ntohs(ip->ip_len) - (size_ip + size_udp);
                 break;
             case IPPROTO_ICMP:
-                sprintf(buffer + strlen(buffer), "Protocol Type: ICMP\n");
                 size_icmp = 8;
                 payload = (u_char *)(packet + SIZE_ETHERNET + size_ip + size_icmp);
                 size_payload = ntohs(ip->ip_len) - (size_ip + size_icmp);
                 break;
             default:
-                sprintf(buffer + strlen(buffer), "Protocol Type: OTHER\n");
                 payload = (u_char *)(packet + SIZE_ETHERNET + size_ip);
                 size_payload = ntohs(ip->ip_len) - size_ip;
         }
