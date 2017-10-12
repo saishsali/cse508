@@ -150,8 +150,7 @@ void print_hex_ascii_line(const u_char *payload, int length, int offset) {
 }
 
 /* Print payload */
-void print_payload(const u_char *payload) {
-    int length = strlen((char *)payload);
+void print_payload(const u_char *payload, int length) {
     int length_remaining = length;
     int line_width = 16;
     int line_length;
@@ -194,9 +193,9 @@ void print_payload(const u_char *payload) {
 }
 
 /* Check if pattern str occurs in payload */
-int check_pattern(const u_char *payload, u_char *str) {
+int check_pattern(const u_char *payload, int length, u_char *str) {
     const u_char *ch = payload;
-    int length = strlen((char *)payload), i;
+    int i;
     u_char *ascii_payload = (u_char *)malloc(sizeof(u_char) * length);
 
     /* If pattern is empty */
@@ -290,6 +289,9 @@ void process_packet(u_char *args, const struct pcap_pkthdr *header, const u_char
             return;
         }
 
+        payload = (u_char *)(packet + SIZE_ETHERNET);
+        size_payload = ntohs(ip->ip_len);
+
         switch (ip->ip_p) {
             case IPPROTO_TCP:
                 /* Define TCP header offset */
@@ -300,12 +302,9 @@ void process_packet(u_char *args, const struct pcap_pkthdr *header, const u_char
                     return;
                 }
 
-                payload = (u_char *)(packet + SIZE_ETHERNET + size_ip + size_tcp);
-                size_payload = ntohs(ip->ip_len) - (size_ip + size_tcp);
-
                 sprintf(
                     buffer + strlen(buffer), "len %d\n%s.%d -> %s.%d TCP",
-                    size_payload, inet_ntoa(ip->ip_src), ntohs(tcp->th_sport),
+                    ntohs(ip->ip_len) - (size_ip + size_tcp), inet_ntoa(ip->ip_src), ntohs(tcp->th_sport),
                     inet_ntoa(ip->ip_dst), ntohs(tcp->th_dport)
                 );
                 break;
@@ -313,72 +312,48 @@ void process_packet(u_char *args, const struct pcap_pkthdr *header, const u_char
             case IPPROTO_UDP:
                 /* Define UDP header offset */
                 udp = (sniff_udp *)(packet + SIZE_ETHERNET + size_ip);
-                payload = (u_char *)(packet + SIZE_ETHERNET + size_ip + SIZE_UDP);
-                size_payload = ntohs(ip->ip_len) - (size_ip + SIZE_UDP);
 
                 sprintf(
                     buffer + strlen(buffer), "len %d\n%s.%d -> %s.%d UDP",
-                    size_payload, inet_ntoa(ip->ip_src), ntohs(udp->uh_sport),
+                    ntohs(ip->ip_len) - (size_ip + SIZE_UDP), inet_ntoa(ip->ip_src), ntohs(udp->uh_sport),
                     inet_ntoa(ip->ip_dst), ntohs(udp->uh_dport)
                 );
                 break;
 
             case IPPROTO_ICMP:
-                payload = (u_char *)(packet + SIZE_ETHERNET + size_ip + SIZE_ICMP);
-                size_payload = ntohs(ip->ip_len) - (size_ip + SIZE_ICMP);
-
                 sprintf(
-                    buffer + strlen(buffer), "len %d\n%s -> %s ICMP", size_payload,
+                    buffer + strlen(buffer), "len %d\n%s -> %s ICMP", ntohs(ip->ip_len) - (size_ip + SIZE_ICMP),
                     inet_ntoa(ip->ip_src), inet_ntoa(ip->ip_dst)
                 );
                 break;
 
             default:
-                payload = (u_char *)(packet + SIZE_ETHERNET + size_ip);
-                size_payload = ntohs(ip->ip_len) - size_ip;
+                return;
         }
 
-        if (check_pattern(payload, args) == 1) {
-            flag = 1;
-        }
     } else if (ntohs(ethernet->ether_type) == ETHERTYPE_ARP) {
         arp = (sniff_arp *)(packet + SIZE_ETHERNET);
         /*
          * 46 bytes is the minimum amount of user data permitted in an Ethernet packet
          * ARP message 28 bytes + frame overhead 18 bytes = 46 bytes
         */
-        sprintf(buffer + strlen(buffer), "len %d\n", SIZE_ARP + FRAME_OVERHEAD);
-        for(i = 0; i < 4; i++) {
-            sprintf(buffer + strlen(buffer), "%d", arp->sender_mac[i]);
-            if (i != 3) {
-                sprintf(buffer + strlen(buffer), ".");
-            }
-        }
-
-        sprintf(buffer + strlen(buffer), " -> ");
-
-        for(i = 0; i < 4; i++) {
-            sprintf(buffer + strlen(buffer), "%d", arp->target_mac[i]);
-            if (i != 3) {
-                sprintf(buffer + strlen(buffer), ".");
-            }
-        }
+        sprintf(buffer + strlen(buffer), "len %d, ", SIZE_ARP + FRAME_OVERHEAD);
         payload = (u_char *)(packet + SIZE_ETHERNET);
-        size_payload = ntohs(ip->ip_len);
+        size_payload = SIZE_ARP + FRAME_OVERHEAD;
 
-        sprintf(buffer + strlen(buffer), " ARP %s", (ntohs(arp->opcode) == ARP_REQUEST)? "Request" : "Reply");
+        sprintf(buffer + strlen(buffer), "ARP %s", (ntohs(arp->opcode) == ARP_REQUEST)? "Request" : "Reply");
         flag = 1;
     } else {
         printf("Ethertype: Unknown\n\n");
+        return;
     }
 
-    if (flag == 1) {
+    if (check_pattern(payload, size_payload, args) == 1) {
         print_timestamp(header);
         print_mac_address((sniff_ethernet *)ethernet);
         printf("%s", buffer);
         if (size_payload > 0) {
-            payload[size_payload] = '\0';
-            print_payload(payload);
+            print_payload(payload, size_payload);
         }
         printf("\n");
     }
@@ -483,7 +458,7 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    /* Start sniffing with  process_packet as the callback function */
+    /* Start sniffing with process_packet as the callback function */
     pcap_loop(handle, -1, process_packet, (u_char *)str);
 
     /* cleanup */
