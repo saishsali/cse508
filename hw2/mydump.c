@@ -1,6 +1,7 @@
 /*
     References:
     - http://www.tcpdump.org/pcap.html
+    - https://en.wikipedia.org/wiki/IPv4
 */
 
 #include <stdio.h>
@@ -13,57 +14,65 @@
 #include <ctype.h>
 #include <arpa/inet.h>
 
-#define SIZE           1024
+/* Buffer size */
+#define SIZE 1024
 
 /* Ethernet addresses are 6 bytes */
 #define ETHER_ADDR_LEN 6
 
-#define SIZE_ETHERNET  14
+/* Ethernet header size is 14 bytes, UDP and ICMP are 8 bytes */
+#define SIZE_ETHERNET 14
+#define SIZE_UDP      8
+#define SIZE_ICMP     8
 
-#define IP_HL(ip)      (((ip)->ip_vhl) & 0x0f)
-#define IP_V(ip)       (((ip)->ip_vhl) >> 4)
+/* IP Header length */
+#define IP_HL(ip) (((ip)->ip_vhl) & 0x0f)
 
+/* Ethertype values for different protocols */
 #define ETHERTYPE_ARP  0x0806
 #define ETHERTYPE_IPV4 0x0800
 
-#define ARP_REQUEST 1   /* ARP Request             */
-#define ARP_REPLY 2     /* ARP Reply               */
+/* ARP Request, Reply, Size and overhead */
+#define ARP_REQUEST    1
+#define ARP_REPLY      2
+#define SIZE_ARP       28
+#define FRAME_OVERHEAD 18
 
-typedef struct arphdr {
-    u_int16_t htype;    /* Hardware Type           */
-    u_int16_t ptype;    /* Protocol Type           */
-    u_char hlen;        /* Hardware Address Length */
-    u_char plen;        /* Protocol Address Length */
-    u_int16_t oper;     /* Operation Code          */
-    u_char sha[6];      /* Sender hardware address */
-    u_char spa[4];      /* Sender IP address       */
-    u_char tha[6];      /* Target hardware address */
-    u_char tpa[4];      /* Target IP address       */
-}arphdr_t;
-
+/* ARP Header */
+typedef struct sniff_arp {
+    uint16_t htype;        /* Hardware Type           */
+    uint16_t ptype;        /* Protocol Type           */
+    u_char hlen;           /* Hardware Address Length */
+    u_char plen;           /* Protocol Address Length */
+    uint16_t opcode;       /* Operation Code          */
+    u_char sender_mac[6];  /* Sender hardware address */
+    u_char sender_ip[4];   /* Sender IP address       */
+    u_char target_mac[6];  /* Target hardware address */
+    u_char target_ip[4];   /* Target IP address       */
+} sniff_arp;
 
 /* Ethernet header */
 typedef struct sniff_ethernet {
     u_char ether_dhost[ETHER_ADDR_LEN]; /* Destination host address */
     u_char ether_shost[ETHER_ADDR_LEN]; /* Source host address */
-    u_short ether_type; /* IP? ARP? RARP? etc */
+    u_short ether_type;                 /* IP? ARP? RARP? etc */
 } sniff_ethernet;
 
 /* IP header */
 typedef struct sniff_ip {
-    u_char ip_vhl;      /* version << 4 | header length >> 2 */
-    u_char ip_tos;      /* type of service */
-    u_short ip_len;     /* total length */
-    u_short ip_id;      /* identification */
-    u_short ip_off;     /* fragment offset field */
-    #define IP_RF 0x8000        /* reserved fragment flag */
-    #define IP_DF 0x4000        /* dont fragment flag */
-    #define IP_MF 0x2000        /* more fragments flag */
-    #define IP_OFFMASK 0x1fff   /* mask for fragmenting bits */
-    u_char ip_ttl;      /* time to live */
-    u_char ip_p;        /* protocol */
-    u_short ip_sum;     /* checksum */
-    struct in_addr ip_src,ip_dst; /* source and dest address */
+    u_char ip_vhl;                  /* version << 4 | header length >> 2 */
+    u_char ip_tos;                  /* type of service */
+    u_short ip_len;                 /* total length */
+    u_short ip_id;                  /* identification */
+    u_short ip_off;                 /* fragment offset field */
+    #define IP_RF 0x8000            /* reserved fragment flag */
+    #define IP_DF 0x4000            /* dont fragment flag */
+    #define IP_MF 0x2000            /* more fragments flag */
+    #define IP_OFFMASK 0x1fff       /* mask for fragmenting bits */
+    u_char ip_ttl;                  /* time to live */
+    u_char ip_p;                    /* protocol */
+    u_short ip_sum;                 /* checksum */
+    struct in_addr ip_src,ip_dst;   /* source and dest address */
 } sniff_ip;
 
 /* TCP header */
@@ -98,23 +107,20 @@ typedef struct sniff_udp {
     u_short uh_sum;   /* Checksum */
 } sniff_udp;
 
-void print_hex_ascii_line(const u_char *payload, int length, int offset)
-{
+/*
+ * Prints payload in rows of 16 bytes in hex and ascii format
+ * Example: 4e 4f 54 49 46 59 20 2a 20 48 54 54 50 2f 31 2e    NOTIFY * HTTP/1.
+ */
+void print_hex_ascii_line(const u_char *payload, int length, int offset) {
     int i;
     int gap;
     const u_char *ch;
-
-    /* offset */
-    printf("%05d   ", offset);
 
     /* hex */
     ch = payload;
     for(i = 0; i < length; i++) {
         printf("%02x ", *ch);
         ch++;
-        /* print extra space after 8th byte for visual aid */
-        if (i == 7)
-            printf(" ");
     }
     /* print space to handle line less than 8 bytes */
     if (length < 8)
@@ -142,6 +148,7 @@ void print_hex_ascii_line(const u_char *payload, int length, int offset)
     printf("\n");
 }
 
+/* Print payload */
 void print_payload(const u_char *payload) {
     int length = strlen((char *)payload);
     int length_remaining = length;
@@ -160,7 +167,7 @@ void print_payload(const u_char *payload) {
     }
 
     /* data spans multiple lines */
-    for ( ;; ) {
+    while (1) {
         /* compute current line length */
         line_length = line_width % length_remaining;
 
@@ -185,15 +192,18 @@ void print_payload(const u_char *payload) {
     }
 }
 
+/* Check if pattern str occurs in payload */
 int check_pattern(const u_char *payload, u_char *str) {
     const u_char *ch = payload;
     int length = strlen((char *)payload), i;
     u_char *ascii_payload = (u_char *)malloc(sizeof(u_char) * length);
 
+    /* If pattern is empty */
     if (str == NULL) {
         return 1;
     }
 
+    /* Create ascii payload from raw payload */
     for (i = 0; i < length; i++) {
         if (isprint(*ch))
             ascii_payload[i] = *ch;
@@ -203,6 +213,7 @@ int check_pattern(const u_char *payload, u_char *str) {
     }
     ascii_payload[i] = '\0';
 
+    /* Check if there is a match for str in ascii payload */
     if (strstr((char *)ascii_payload, (char *)str) == NULL) {
         return 0;
     }
@@ -210,6 +221,10 @@ int check_pattern(const u_char *payload, u_char *str) {
     return 1;
 }
 
+/*
+ * Print timestamp
+ * Example: 2013-01-12 18:10:37.951621
+*/
 void print_timestamp(const struct pcap_pkthdr *header) {
     struct tm *tm_info;
     char timestamp[20];
@@ -219,10 +234,15 @@ void print_timestamp(const struct pcap_pkthdr *header) {
     printf("%s.%06ld ", timestamp, (long int)header->ts.tv_usec);
 }
 
+/*
+ * Print source and destination MAC address
+ * Example: c4:3d:c7:17:6f:9b -> 01:00:5e:7f:ff:fa
+*/
 void print_mac_address(sniff_ethernet *ethernet) {
     const u_char *ch;
     int i;
 
+    /* Source MAC Address */
     ch = ethernet->ether_shost;
     for(i = 0; i < ETHER_ADDR_LEN; i++) {
         printf("%02x", *ch);
@@ -232,6 +252,7 @@ void print_mac_address(sniff_ethernet *ethernet) {
     }
     printf(" -> ");
 
+    /* Destination MAC Address */
     ch = ethernet->ether_dhost;
     for(i = 0; i < ETHER_ADDR_LEN; i++) {
         printf("%02x", *ch);
@@ -242,13 +263,14 @@ void print_mac_address(sniff_ethernet *ethernet) {
     printf(" ");
 }
 
+/* Callback function process packet to fetch and print packet */
 void process_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *packet) {
     /* declare pointers to packet headers */
     const sniff_ethernet *ethernet; /* The ethernet header */
     const sniff_ip *ip;             /* The IP header */
     const sniff_tcp *tcp;           /* The TCP header */
     const sniff_udp *udp;           /* The UDP header */
-    const arphdr_t *arp;
+    const sniff_arp *arp;
     u_char *payload = NULL;         /* Packet payload */
     char buffer[SIZE];
 
@@ -259,7 +281,7 @@ void process_packet(u_char *args, const struct pcap_pkthdr *header, const u_char
     sprintf(buffer, "type 0x%x ", ntohs(ethernet->ether_type));
 
     if (ntohs(ethernet->ether_type) == ETHERTYPE_IPV4) {
-         /* Define IP header offset */
+        /* Define IP header offset */
         ip = (sniff_ip *)(packet + SIZE_ETHERNET);
         size_ip = IP_HL(ip) * 4;
         if (size_ip < 20) {
@@ -267,11 +289,9 @@ void process_packet(u_char *args, const struct pcap_pkthdr *header, const u_char
             return;
         }
 
-        sprintf(buffer + strlen(buffer), "len %d\n", ntohs(ip->ip_len));
-        sprintf(buffer + strlen(buffer), "%s", inet_ntoa(ip->ip_src));
-
         switch (ip->ip_p) {
             case IPPROTO_TCP:
+                /* Define TCP header offset */
                 tcp = (sniff_tcp *)(packet + SIZE_ETHERNET + size_ip);
                 size_tcp = TH_OFF(tcp) * 4;
                 if (size_tcp < 20) {
@@ -279,26 +299,39 @@ void process_packet(u_char *args, const struct pcap_pkthdr *header, const u_char
                     return;
                 }
 
-                sprintf(buffer + strlen(buffer), ".%d -> %s.%d TCP", ntohs(tcp->th_sport), inet_ntoa(ip->ip_dst), ntohs(tcp->th_dport));
-
                 payload = (u_char *)(packet + SIZE_ETHERNET + size_ip + size_tcp);
                 size_payload = ntohs(ip->ip_len) - (size_ip + size_tcp);
+
+                sprintf(
+                    buffer + strlen(buffer), "len %d\n%s.%d -> %s.%d TCP",
+                    size_payload, inet_ntoa(ip->ip_src), ntohs(tcp->th_sport),
+                    inet_ntoa(ip->ip_dst), ntohs(tcp->th_dport)
+                );
                 break;
+
             case IPPROTO_UDP:
+                /* Define UDP header offset */
                 udp = (sniff_udp *)(packet + SIZE_ETHERNET + size_ip);
-                size_udp = 8;
+                payload = (u_char *)(packet + SIZE_ETHERNET + size_ip + SIZE_UDP);
+                size_payload = ntohs(ip->ip_len) - (size_ip + SIZE_UDP);
 
-                sprintf(buffer + strlen(buffer), ".%d -> %s.%d UDP", ntohs(udp->uh_sport), inet_ntoa(ip->ip_dst), ntohs(udp->uh_dport));
-
-                payload = (u_char *)(packet + SIZE_ETHERNET + size_ip + size_udp);
-                size_payload = ntohs(ip->ip_len) - (size_ip + size_udp);
+                sprintf(
+                    buffer + strlen(buffer), "len %d\n%s.%d -> %s.%d UDP",
+                    size_payload, inet_ntoa(ip->ip_src), ntohs(udp->uh_sport),
+                    inet_ntoa(ip->ip_dst), ntohs(udp->uh_dport)
+                );
                 break;
+
             case IPPROTO_ICMP:
-                sprintf(buffer + strlen(buffer), "-> %s ICMP", inet_ntoa(ip->ip_dst));
-                size_icmp = 8;
-                payload = (u_char *)(packet + SIZE_ETHERNET + size_ip + size_icmp);
-                size_payload = ntohs(ip->ip_len) - (size_ip + size_icmp);
+                payload = (u_char *)(packet + SIZE_ETHERNET + size_ip + SIZE_ICMP);
+                size_payload = ntohs(ip->ip_len) - (size_ip + SIZE_ICMP);
+
+                sprintf(
+                    buffer + strlen(buffer), "len %d\n%s -> %s ICMP", size_payload,
+                    inet_ntoa(ip->ip_src), inet_ntoa(ip->ip_dst)
+                );
                 break;
+
             default:
                 payload = (u_char *)(packet + SIZE_ETHERNET + size_ip);
                 size_payload = ntohs(ip->ip_len) - size_ip;
@@ -308,12 +341,14 @@ void process_packet(u_char *args, const struct pcap_pkthdr *header, const u_char
             flag = 1;
         }
     } else if (ntohs(ethernet->ether_type) == ETHERTYPE_ARP) {
-        arp = (arphdr_t *)(packet + SIZE_ETHERNET);
-        // 46 bytes is the minimum amount of user data permitted in an Ethernet packet
-        // ARP message 28 bytes + frame overhead 18 bytes = 46 bytes
-        sprintf(buffer + strlen(buffer), "len 46\n");
+        arp = (sniff_arp *)(packet + SIZE_ETHERNET);
+        /*
+         * 46 bytes is the minimum amount of user data permitted in an Ethernet packet
+         * ARP message 28 bytes + frame overhead 18 bytes = 46 bytes
+        */
+        sprintf(buffer + strlen(buffer), "len %d\n", SIZE_ARP + FRAME_OVERHEAD);
         for(i = 0; i < 4; i++) {
-            sprintf(buffer + strlen(buffer), "%d", arp->spa[i]);
+            sprintf(buffer + strlen(buffer), "%d", arp->sender_mac[i]);
             if (i != 3) {
                 sprintf(buffer + strlen(buffer), ".");
             }
@@ -322,13 +357,15 @@ void process_packet(u_char *args, const struct pcap_pkthdr *header, const u_char
         sprintf(buffer + strlen(buffer), " -> ");
 
         for(i = 0; i < 4; i++) {
-            sprintf(buffer + strlen(buffer), "%d", arp->tpa[i]);
+            sprintf(buffer + strlen(buffer), "%d", arp->target_mac[i]);
             if (i != 3) {
                 sprintf(buffer + strlen(buffer), ".");
             }
         }
+        payload = (u_char *)(packet + SIZE_ETHERNET);
+        size_payload = ntohs(ip->ip_len);
 
-        sprintf(buffer + strlen(buffer), " ARP %s", (ntohs(arp->oper) == ARP_REQUEST)? "Request" : "Reply");
+        sprintf(buffer + strlen(buffer), " ARP %s", (ntohs(arp->opcode) == ARP_REQUEST)? "Request" : "Reply");
         flag = 1;
     } else {
         printf("Ethertype: Unknown\n\n");
@@ -345,7 +382,6 @@ void process_packet(u_char *args, const struct pcap_pkthdr *header, const u_char
         printf("\n");
     }
 }
-
 
 int main(int argc, char *argv[]) {
     int option;
