@@ -1,0 +1,28 @@
+About mydump:
+-------------
+
+- A passive network monitoring application written in C using the libpcap packet capture library.
+- Captures traffic from a network interface in promiscuous mode. Promiscuous mode allows a network device to
+  intercept and read each network packet that arrives.
+- Reads packets from a pcap trace file.
+- Prints record for each packet in its standard output.
+- Supports following protocol types:
+    - IPv4: TCP, UDP, ICMP
+    - ARP
+- Prints "OTHER" for all protocol types not mentioned above.
+- Supports BPF filter for capturing a subset of the traffic.
+- Supports a string pattern for capturing only packets with matching payloads.
+- Supports only ETHERNET link-layer header type.
+
+Program execution:
+------------------
+
+- Program execution begins at main() which gets command line options specified by the user
+  (interface, file, BPF filter, string expression).
+- If both interface and pcap filename is specified as option, program reads from the pcap file.
+- Finds a default device (en0 on macOS) on which to capture if both interface and pcap filename is not specified as option.
+- Opens the device/file for sniffing in promiscuous mode.
+- Compiles and applies BPF filter expression specified by the user to filter traffic.
+- Starts sniffing with process_packet as a callback function
+- Closes capturing device or savefile
+
