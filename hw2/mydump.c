@@ -2,6 +2,7 @@
     References:
     - http://www.tcpdump.org/pcap.html
     - https://en.wikipedia.org/wiki/IPv4
+    - https://en.wikipedia.org/wiki/EtherType
 */
 
 #include <stdio.h>
@@ -260,7 +261,7 @@ void print_mac_address(sniff_ethernet *ethernet) {
         if (i != ETHER_ADDR_LEN - 1)
             printf(":");
     }
-    printf(" ");
+    printf(", ");
 }
 
 /* Callback function process packet to fetch and print packet */
@@ -270,7 +271,7 @@ void process_packet(u_char *args, const struct pcap_pkthdr *header, const u_char
     const sniff_ip *ip;             /* The IP header */
     const sniff_tcp *tcp;           /* The TCP header */
     const sniff_udp *udp;           /* The UDP header */
-    const sniff_arp *arp;
+    const sniff_arp *arp;           /* The ARP header */
     u_char *payload = NULL;         /* Packet payload */
     char buffer[SIZE];
 
@@ -278,7 +279,7 @@ void process_packet(u_char *args, const struct pcap_pkthdr *header, const u_char
 
     /* Define ethernet header */
     ethernet = (sniff_ethernet *)packet;
-    sprintf(buffer, "type 0x%x ", ntohs(ethernet->ether_type));
+    sprintf(buffer, "type 0x%x, ", ntohs(ethernet->ether_type));
 
     if (ntohs(ethernet->ether_type) == ETHERTYPE_IPV4) {
         /* Define IP header offset */
@@ -383,14 +384,22 @@ void process_packet(u_char *args, const struct pcap_pkthdr *header, const u_char
     }
 }
 
+// Start execution
 int main(int argc, char *argv[]) {
-    int option;
-    char error_buffer[PCAP_ERRBUF_SIZE], *interface = NULL, *file = NULL, *str = NULL, *expression = NULL;
-    pcap_t *handle;
-    bpf_u_int32 net;
-    bpf_u_int32 mask;
-    struct bpf_program fp;
+    int option; /* Command line option */
 
+    /* If a pcap command fails, error_buffer has a description of the error */
+    char error_buffer[PCAP_ERRBUF_SIZE];
+
+    /* Interface, file, string to be matched and BPF filter expression */
+    char *interface = NULL, *file = NULL, *str = NULL, *expression = NULL;
+
+    pcap_t *handle;         /* Session handle */
+    bpf_u_int32 net;        /* The IP of our sniffing device */
+    bpf_u_int32 mask;       /* The netmask of our sniffing device */
+    struct bpf_program fp;  /* The compiled filter expression */
+
+    /* Get options from command line arguments */
     while ((option = getopt(argc, argv, "i:r:s:")) != -1) {
         switch (option) {
             case 'i':
@@ -407,6 +416,7 @@ int main(int argc, char *argv[]) {
         }
     }
 
+    // Get expression
     if (optind == argc - 1) {
         expression = argv[optind];
     } else if (optind < (argc - 1)) {
@@ -414,11 +424,14 @@ int main(int argc, char *argv[]) {
         return -1;
     }
 
+    /* Read packet from file in case both interface and filename is provided */
     if (interface != NULL && file != NULL) {
         interface = NULL;
     }
 
+    /* If both interface and filename is NULL */
     if (interface == NULL && file == NULL) {
+        /* Setting the device */
         interface = pcap_lookupdev(error_buffer);
         if (interface == NULL) {
             fprintf(stderr, "Couldn't find default interface: %s\n", error_buffer);
@@ -426,13 +439,16 @@ int main(int argc, char *argv[]) {
         }
     }
 
+    /* If interface is provided */
     if (interface != NULL) {
+        /* Get IPv4 network numbers and corresponding network mask of the device */
         if (pcap_lookupnet(interface, &net, &mask, error_buffer) == -1) {
             fprintf(stderr, "Couldn't get netmask for interface: %s", interface);
             net = 0;
             mask = 0;
         }
 
+        /* Open the device for sniffing */
         handle = pcap_open_live(interface, BUFSIZ, 1, 1000, error_buffer);
 
         if (handle == NULL) {
@@ -443,7 +459,7 @@ int main(int argc, char *argv[]) {
         if (pcap_datalink(handle) != DLT_EN10MB) {
             fprintf(stderr, "Interface %s doesn't supply Ethernet headers - not supported\n", interface);
         }
-    } else if (file != NULL) {
+    } else if (file != NULL) { /* Else if filename is provided */
         handle = pcap_open_offline(file, error_buffer);
 
         if (handle == NULL) {
@@ -452,19 +468,27 @@ int main(int argc, char *argv[]) {
         }
     }
 
+    /* If BPF filter is present, Filter traffic */
     if (expression != NULL) {
+        /* Compile filter */
         if (pcap_compile(handle, &fp, expression, 0, net) == -1) {
             fprintf(stderr, "Coudn't parse filter %s: %s\n", expression, pcap_geterr(handle));
             return -1;
         }
 
+        /* Apply filter */
         if (pcap_setfilter(handle, &fp) == -1) {
             fprintf(stderr, "Couldn't apply filter %s: %s\n", expression, pcap_geterr(handle));
             return -1;
         }
     }
 
+    /* Start sniffing with  process_packet as the callback function */
     pcap_loop(handle, -1, process_packet, (u_char *)str);
+
+    /* cleanup */
+    pcap_freecode(&fp);
+    pcap_close(handle);
 
     return 0;
 }
