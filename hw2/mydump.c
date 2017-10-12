@@ -274,7 +274,7 @@ void process_packet(u_char *args, const struct pcap_pkthdr *header, const u_char
     u_char *payload = NULL;         /* Packet payload */
     char buffer[SIZE];
 
-    int size_ip, size_tcp, size_udp, size_icmp, size_payload = 0, flag = 0, i;
+    int size_ip, size_tcp, size_payload = 0, flag = 0;
 
     /* Define ethernet header */
     ethernet = (sniff_ethernet *)packet;
@@ -328,6 +328,9 @@ void process_packet(u_char *args, const struct pcap_pkthdr *header, const u_char
                 break;
 
             default:
+                if (check_pattern(payload, size_payload, args) == 1) {
+                    printf("OTHER\n\n");
+                }
                 return;
         }
 
