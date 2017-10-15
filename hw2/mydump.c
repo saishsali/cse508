@@ -1,10 +1,10 @@
 /*
     References:
     - http://www.tcpdump.org/pcap.html
-    - https://en.wikipedia.org/wiki/IPv4
-    - https://en.wikipedia.org/wiki/EtherType
+    - http://www.tcpdump.org/manpages/pcap-filter.7.html
 */
 
+#define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
 #include <pcap.h>
@@ -33,11 +33,9 @@
 #define ETHERTYPE_ARP  0x0806
 #define ETHERTYPE_IPV4 0x0800
 
-/* ARP Request, Reply, Size and overhead */
+/* ARP Request, Reply */
 #define ARP_REQUEST    1
 #define ARP_REPLY      2
-#define SIZE_ARP       28
-#define FRAME_OVERHEAD 18
 
 /* ARP Header */
 typedef struct sniff_arp {
@@ -117,6 +115,7 @@ void print_hex_ascii_line(const u_char *payload, int length, int offset) {
     int gap;
     const u_char *ch;
 
+    printf("\n");
     /* hex */
     ch = payload;
     for(i = 0; i < length; i++) {
@@ -145,8 +144,6 @@ void print_hex_ascii_line(const u_char *payload, int length, int offset) {
             printf(".");
         ch++;
     }
-
-    printf("\n");
 }
 
 /* Print payload */
@@ -160,7 +157,6 @@ void print_payload(const u_char *payload, int length) {
     if (length <= 0)
         return;
 
-    printf("\n");
     if (length <= line_width) {
         print_hex_ascii_line(ch, length, offset);
         return;
@@ -196,10 +192,11 @@ void print_payload(const u_char *payload, int length) {
 int check_pattern(const u_char *payload, int length, u_char *str) {
     const u_char *ch = payload;
     int i;
-    u_char *ascii_payload = (u_char *)malloc(sizeof(u_char) * length);
+    u_char *ascii_payload = (u_char *)malloc(sizeof(u_char) * length + 1);
 
     /* If pattern is empty */
     if (str == NULL) {
+        free(ascii_payload);
         return 1;
     }
 
@@ -214,10 +211,12 @@ int check_pattern(const u_char *payload, int length, u_char *str) {
     ascii_payload[i] = '\0';
 
     /* Check if there is a match for str in ascii payload */
-    if (strstr((char *)ascii_payload, (char *)str) == NULL) {
+    if (strcasestr((char *)ascii_payload, (char *)str) == NULL) {
+        free(ascii_payload);
         return 0;
     }
 
+    free(ascii_payload);
     return 1;
 }
 
@@ -231,7 +230,7 @@ void print_timestamp(const struct pcap_pkthdr *header) {
     time_t timer = (time_t)(header->ts.tv_sec);
     tm_info = localtime(&timer);
     strftime(timestamp, 50, "%Y-%m-%d %H:%M:%S", tm_info);
-    printf("%s.%06ld ", timestamp, (long int)header->ts.tv_usec);
+    printf("%s.%06ld, ", timestamp, (long int)header->ts.tv_usec);
 }
 
 /*
@@ -274,7 +273,7 @@ void process_packet(u_char *args, const struct pcap_pkthdr *header, const u_char
     u_char *payload = NULL;         /* Packet payload */
     char buffer[SIZE];
 
-    int size_ip, size_tcp, size_payload = 0, flag = 0;
+    int size_ip, size_tcp, size_payload = 0, i;
 
     /* Define ethernet header */
     ethernet = (sniff_ethernet *)packet;
@@ -289,9 +288,10 @@ void process_packet(u_char *args, const struct pcap_pkthdr *header, const u_char
             return;
         }
 
-        payload = (u_char *)(packet + SIZE_ETHERNET);
-        size_payload = ntohs(ip->ip_len);
+        /* Packet length */
+        sprintf(buffer + strlen(buffer), "length %d, ", header->len);
 
+        /* Determine protocol */
         switch (ip->ip_p) {
             case IPPROTO_TCP:
                 /* Define TCP header offset */
@@ -302,50 +302,78 @@ void process_packet(u_char *args, const struct pcap_pkthdr *header, const u_char
                     return;
                 }
 
+                /* Source IP.Source Port -> Destination IP.Destination Port for TCP */
                 sprintf(
-                    buffer + strlen(buffer), "len %d\n%s.%d -> %s.%d TCP",
-                    ntohs(ip->ip_len) - (size_ip + size_tcp), inet_ntoa(ip->ip_src), ntohs(tcp->th_sport),
+                    buffer + strlen(buffer), "%s.%d -> %s.%d TCP",
+                    inet_ntoa(ip->ip_src), ntohs(tcp->th_sport),
                     inet_ntoa(ip->ip_dst), ntohs(tcp->th_dport)
                 );
+
+                /* Compute TCP payload offset and size*/
+                payload = (u_char *)(packet + SIZE_ETHERNET + size_ip + size_tcp);
+                size_payload = ntohs(ip->ip_len) - (size_ip + size_tcp);
                 break;
 
             case IPPROTO_UDP:
                 /* Define UDP header offset */
                 udp = (sniff_udp *)(packet + SIZE_ETHERNET + size_ip);
 
+                /* Source IP.Source Port -> Destination IP.Destination Port for UDP */
                 sprintf(
-                    buffer + strlen(buffer), "len %d\n%s.%d -> %s.%d UDP",
-                    ntohs(ip->ip_len) - (size_ip + SIZE_UDP), inet_ntoa(ip->ip_src), ntohs(udp->uh_sport),
+                    buffer + strlen(buffer), "%s.%d -> %s.%d UDP",
+                    inet_ntoa(ip->ip_src), ntohs(udp->uh_sport),
                     inet_ntoa(ip->ip_dst), ntohs(udp->uh_dport)
                 );
+
+                /* Compute UDP payload offset and size*/
+                payload = (u_char *)(packet + SIZE_ETHERNET + size_ip + SIZE_UDP);
+                size_payload = ntohs(ip->ip_len) - (size_ip + SIZE_UDP);
                 break;
 
             case IPPROTO_ICMP:
+                /* Source IP -> Destination IP for ICMP */
                 sprintf(
-                    buffer + strlen(buffer), "len %d\n%s -> %s ICMP", ntohs(ip->ip_len) - (size_ip + SIZE_ICMP),
+                    buffer + strlen(buffer), "%s -> %s ICMP",
                     inet_ntoa(ip->ip_src), inet_ntoa(ip->ip_dst)
                 );
+
+                /* Compute ICMP payload offset and size*/
+                payload = (u_char *)(packet + SIZE_ETHERNET + size_ip + SIZE_ICMP);
+                size_payload = ntohs(ip->ip_len) - (size_ip + SIZE_ICMP);
                 break;
 
             default:
-                if (check_pattern(payload, size_payload, args) == 1) {
-                    printf("OTHER\n\n");
-                }
-                return;
+                /* Source IP -> Destination IP for OTHER */
+                sprintf(buffer + strlen(buffer), "%s -> %s OTHER", inet_ntoa(ip->ip_src), inet_ntoa(ip->ip_dst));
         }
 
     } else if (ntohs(ethernet->ether_type) == ETHERTYPE_ARP) {
         arp = (sniff_arp *)(packet + SIZE_ETHERNET);
-        /*
-         * 46 bytes is the minimum amount of user data permitted in an Ethernet packet
-         * ARP message 28 bytes + frame overhead 18 bytes = 46 bytes
-        */
-        sprintf(buffer + strlen(buffer), "len %d, ", SIZE_ARP + FRAME_OVERHEAD);
-        payload = (u_char *)(packet + SIZE_ETHERNET);
-        size_payload = SIZE_ARP + FRAME_OVERHEAD;
 
-        sprintf(buffer + strlen(buffer), "ARP %s", (ntohs(arp->opcode) == ARP_REQUEST)? "Request" : "Reply");
-        flag = 1;
+        /* Packet length and ARP Request/Reply */
+        sprintf(
+            buffer + strlen(buffer), "length %d, ARP %s, ", header->len,
+            (ntohs(arp->opcode) == ARP_REQUEST)? "Request" : "Reply"
+        );
+
+        /* Source IP address */
+        for(i = 0; i < 4; i++) {
+            sprintf(buffer + strlen(buffer), "%d", arp->sender_ip[i]);
+            if (i != 3) {
+                sprintf(buffer + strlen(buffer), ".");
+            }
+        }
+
+        sprintf(buffer + strlen(buffer), " -> ");
+
+        /* Destination IP address */
+        for(i = 0; i < 4; i++) {
+            sprintf(buffer + strlen(buffer), "%d", arp->target_ip[i]);
+            if (i != 3) {
+                sprintf(buffer + strlen(buffer), ".");
+            }
+        }
+
     } else {
         printf("Ethertype: Unknown\n\n");
         return;
@@ -358,7 +386,7 @@ void process_packet(u_char *args, const struct pcap_pkthdr *header, const u_char
         if (size_payload > 0) {
             print_payload(payload, size_payload);
         }
-        printf("\n");
+        printf("\n\n");
     }
 }
 
@@ -465,7 +493,9 @@ int main(int argc, char *argv[]) {
     pcap_loop(handle, -1, process_packet, (u_char *)str);
 
     /* cleanup */
-    pcap_freecode(&fp);
+    if (expression != NULL) {
+        pcap_freecode(&fp);
+    }
     pcap_close(handle);
 
     return 0;
