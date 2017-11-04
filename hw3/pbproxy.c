@@ -7,6 +7,7 @@
 #include <netinet/in.h>
 #include <netdb.h>
 #include <string.h>
+#include <fcntl.h>
 #include <openssl/aes.h>
 #include <openssl/rand.h>
 #include <openssl/hmac.h>
@@ -130,6 +131,20 @@ void send_data(int sock_fd, AES_KEY aes_key, char buffer[], int size) {
     write(sock_fd, encrypted_data, size + 8);
 }
 
+void receive_data(int sock_fd, AES_KEY aes_key, char buffer[], int size) {
+    struct ctr_state state;
+    unsigned char iv[8];
+
+    memcpy(iv, buffer, 8);
+    init_ctr(&state, iv);
+
+    unsigned char decrypted_data[size - 8];
+
+    AES_ctr128_encrypt(buffer + 8, decrypted_data, size - 8, &aes_key, state.ivec, state.ecount, &state.num);
+
+    write(STDOUT_FILENO, decrypted_data, size - 8);
+}
+
 void client_side_proxy(struct hostent *destination_host, int destination_port, char *key) {
     int sock_fd, n;
     struct sockaddr_in address;
@@ -149,11 +164,12 @@ void client_side_proxy(struct hostent *destination_host, int destination_port, c
         exit(EXIT_FAILURE);
     }
 
-    char buffer[BUFFER_SIZE];
+    fcntl(STDIN_FILENO, F_SETFL, O_NONBLOCK);
+    fcntl(sock_fd, F_SETFL, O_NONBLOCK);
 
+    char buffer[BUFFER_SIZE];
     AES_KEY aes_key;
 
-    printf("Key: %s\n", key);
     if (AES_set_encrypt_key(key, 128, &aes_key) < 0) {
         fprintf(stderr, "Error in setting encryption key");
         exit(EXIT_FAILURE);
@@ -162,6 +178,10 @@ void client_side_proxy(struct hostent *destination_host, int destination_port, c
     while (1) {
         while ((n = read(STDIN_FILENO, buffer, BUFFER_SIZE)) > 0) {
             send_data(sock_fd, aes_key, buffer, BUFFER_SIZE);
+        }
+
+        while ((n = read(sock_fd, buffer, BUFFER_SIZE)) > 0) {
+            receive_data(sock_fd, aes_key, buffer, BUFFER_SIZE);
         }
     }
 }
