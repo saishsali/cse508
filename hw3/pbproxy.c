@@ -65,51 +65,6 @@ void server_thread(void *args) {
 
 }
 
-void server_side_proxy(int listen_port, struct hostent *destination_host, int destination_port, char *key) {
-    int sock_fd, new_socket;
-    struct sockaddr_in address;
-    int addrlen = sizeof(address);
-    char buffer[1024] = {0};
-
-    if ((sock_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
-        fprintf(stderr, "Socket creation failed");
-        exit(EXIT_FAILURE);
-    }
-    address.sin_family = AF_INET;
-    address.sin_addr.s_addr = INADDR_ANY;
-    address.sin_port = listen_port;
-
-    if (bind(sock_fd, (struct sockaddr *)&address, sizeof(address)) < 0) {
-        fprintf(stderr, "Binding failed");
-        exit(EXIT_FAILURE);
-    }
-
-    if (listen(sock_fd, 3) < 0) {
-        fprintf(stderr, "Listen failed");
-        exit(EXIT_FAILURE);
-    }
-
-    pthread_t tid;
-    while (1) {
-        // args *arg = (args *)malloc(sizeof(args));
-        // if ((arg->sock = accept(sock_fd, (struct sockaddr *)&address, sizeof(address))) < 0) {
-        //     fprintf(stderr, "Accept failed");
-        //     free(arg);
-        //     exit(EXIT_FAILURE);
-        // }
-        // arg->key = key;
-        // pthread_create(&tid, 0, server_thread, (void*)arg);
-
-
-        if ((new_socket = accept(sock_fd, (struct sockaddr *)&address, (socklen_t*)&addrlen)) < 0) {
-            fprintf(stderr, "Accept failed");
-            // free(arg);
-            exit(EXIT_FAILURE);
-        }
-        read(new_socket , buffer, 1024);
-        printf("%s\n", buffer);
-    }
-}
 
 void send_data(int sock_fd, AES_KEY aes_key, char buffer[], int size) {
     struct ctr_state state;
@@ -145,6 +100,75 @@ void receive_data(int sock_fd, AES_KEY aes_key, char buffer[], int size) {
     write(STDOUT_FILENO, decrypted_data, size - 8);
 }
 
+void server_side_proxy(int listen_port, struct hostent *destination_host, int destination_port, char *key) {
+    int sock_fd, new_socket, n, opt = 1;
+    struct sockaddr_in address;
+    int addrlen = sizeof(address);
+
+    if ((sock_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+        fprintf(stderr, "Socket creation failed");
+        exit(EXIT_FAILURE);
+    }
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = INADDR_ANY;
+    address.sin_port = listen_port;
+
+    if (setsockopt(sock_fd, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, &opt, sizeof(opt))) {
+        // fprintf(stderr, "Socket creation failed");
+        exit(EXIT_FAILURE);
+    }
+
+    if (bind(sock_fd, (struct sockaddr *)&address, sizeof(address)) < 0) {
+        fprintf(stderr, "Binding failed");
+        exit(EXIT_FAILURE);
+    }
+
+    if (listen(sock_fd, 3) < 0) {
+        fprintf(stderr, "Listen failed");
+        exit(EXIT_FAILURE);
+    }
+
+    // pthread_t tid;
+
+
+    // fcntl(STDIN_FILENO, F_SETFL, O_NONBLOCK);
+    // fcntl(sock_fd, F_SETFL, O_NONBLOCK);
+
+    char buffer[BUFFER_SIZE];
+    AES_KEY aes_key;
+
+    if (AES_set_encrypt_key(key, 128, &aes_key) < 0) {
+        fprintf(stderr, "Error in setting encryption key");
+        exit(EXIT_FAILURE);
+    }
+//
+    if ((new_socket = accept(sock_fd, (struct sockaddr *)&address, (socklen_t*)&addrlen)) < 0) {
+        fprintf(stderr, "Accept failed");
+        // free(arg);
+        exit(EXIT_FAILURE);
+    }
+
+    // fcntl(new_socket, F_SETFL, O_NONBLOCK);
+    while (1) {
+        while ((n = read(new_socket, buffer, BUFFER_SIZE)) > 0) {
+            receive_data(sock_fd, aes_key, buffer, n);
+        }
+        // args *arg = (args *)malloc(sizeof(args));
+        // if ((arg->sock = accept(sock_fd, (struct sockaddr *)&address, sizeof(address))) < 0) {
+        //     fprintf(stderr, "Accept failed");
+        //     free(arg);
+        //     exit(EXIT_FAILURE);
+        // }
+        // arg->key = key;
+        // pthread_create(&tid, 0, server_thread, (void*)arg);
+
+
+
+        // read(new_socket , buffer, 1024);
+        // printf("%s\n", buffer);
+    }
+}
+
 void client_side_proxy(struct hostent *destination_host, int destination_port, char *key) {
     int sock_fd, n;
     struct sockaddr_in address;
@@ -165,7 +189,7 @@ void client_side_proxy(struct hostent *destination_host, int destination_port, c
     }
 
     fcntl(STDIN_FILENO, F_SETFL, O_NONBLOCK);
-    fcntl(sock_fd, F_SETFL, O_NONBLOCK);
+    // fcntl(sock_fd, F_SETFL, O_NONBLOCK);
 
     char buffer[BUFFER_SIZE];
     AES_KEY aes_key;
@@ -177,12 +201,12 @@ void client_side_proxy(struct hostent *destination_host, int destination_port, c
 
     while (1) {
         while ((n = read(STDIN_FILENO, buffer, BUFFER_SIZE)) > 0) {
-            send_data(sock_fd, aes_key, buffer, BUFFER_SIZE);
+            send_data(sock_fd, aes_key, buffer, n);
         }
 
-        while ((n = read(sock_fd, buffer, BUFFER_SIZE)) > 0) {
-            receive_data(sock_fd, aes_key, buffer, BUFFER_SIZE);
-        }
+        // while ((n = read(sock_fd, buffer, BUFFER_SIZE)) > 0) {
+        //     receive_data(sock_fd, aes_key, buffer, BUFFER_SIZE);
+        // }
     }
 }
 
