@@ -2,16 +2,11 @@
 
 #include <stdio.h>
 #include <unistd.h>
-#include <stdlib.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
 #include <netdb.h>
 #include <string.h>
 #include <fcntl.h>
 #include <openssl/aes.h>
 #include <openssl/rand.h>
-#include <openssl/hmac.h>
-#include <openssl/buffer.h>
 #include <pthread.h>
 
 #define BUFFER_SIZE 4096
@@ -25,14 +20,10 @@ struct ctr_state {
 struct proxy_connection {
     int sock_fd;
     const char *key;
-    struct hostent *destination_host;
-    int destination_port;
     struct sockaddr_in ssh_address;
-    struct sockaddr address;
-    int addr_len;
 };
 
-// https://stackoverflow.com/questions/3141860/aes-ctr-256-encryption-mode-of-operation-on-openssl
+/* https://stackoverflow.com/questions/3141860/aes-ctr-256-encryption-mode-of-operation-on-openssl */
 void init_ctr(struct ctr_state *state, const unsigned char iv[]) {
     /* aes_ctr128_encrypt requires 'num' and 'ecount' set to zero on the first call. */
     state->num = 0;
@@ -45,7 +36,7 @@ void init_ctr(struct ctr_state *state, const unsigned char iv[]) {
     memcpy(state->ivec, iv, 8);
 }
 
-// https://stackoverflow.com/questions/14002954/c-programming-how-to-read-the-whole-file-contents-into-a-buffer
+/* https://stackoverflow.com/questions/14002954/c-programming-how-to-read-the-whole-file-contents-into-a-buffer */
 char *read_keyfile(char *keyfile) {
     FILE *fp = fopen(keyfile, "r");
 
@@ -110,10 +101,6 @@ void* server_thread(void *args) {
         fprintf(stderr, "SSH socket creation failed\n");
         pthread_exit(0);
     }
-    // address.sin_family = AF_INET;
-    // address.sin_addr.s_addr = ((struct in_addr *)(connection->destination_host->h_addr))->s_addr;
-    // address.sin_port = htons(connection->destination_port);
-    // printf("Destination port: %d\n", connection->destination_port);
 
     if (connect(ssh_sock_fd, (struct sockaddr *)&connection->ssh_address, sizeof(connection->ssh_address)) < 0) {
         fprintf(stderr, "SSH connection failed\n");
@@ -148,8 +135,9 @@ void* server_thread(void *args) {
                 // write(connection->sock_fd, buffer, n);
             }
 
-            if (ssh_conn = 0 && n == 0)
+            if (ssh_conn == 0 && n == 0) {
                 ssh_conn = 1;
+            }
 
             if (n < BUFFER_SIZE)
                 break;
@@ -158,9 +146,10 @@ void* server_thread(void *args) {
         if (ssh_conn == 1)
             break;
     }
+    printf("Server thread Finished\n");
 }
 
-void server_side_proxy(int listen_port, struct hostent *destination_host, int destination_port, char *key) {
+void server_side_reverse_proxy(int listen_port, struct hostent *destination_host, int destination_port, char *key) {
     int sock_fd, new_socket, n, opt = 1;
     struct sockaddr_in address, ssh_address;
     int addr_len = sizeof(address);
@@ -178,7 +167,7 @@ void server_side_proxy(int listen_port, struct hostent *destination_host, int de
     ssh_address.sin_port = htons(destination_port);
 
     if (setsockopt(sock_fd, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, &opt, sizeof(opt))) {
-        fprintf(stderr, "Reuse address/port failed\n");
+        fprintf(stderr, "Reuse of address/port failed\n");
         exit(EXIT_FAILURE);
     }
 
@@ -197,17 +186,13 @@ void server_side_proxy(int listen_port, struct hostent *destination_host, int de
 
     while (1) {
         connection = (struct proxy_connection *)malloc(sizeof(struct proxy_connection));
-        if ((connection->sock_fd = accept(sock_fd, &connection->address, &connection->addr_len)) > 0) {
-        // if ((connection->sock_fd = accept(sock_fd, (struct sockaddr *)&address, (socklen_t *)&addr_len)) > 0) {
-            // connection->destination_host = destination_host;
-            // connection->destination_port = destination_port;
+        if ((connection->sock_fd = accept(sock_fd, (struct sockaddr *)&address, (socklen_t *)&addr_len)) > 0) {
             connection->ssh_address = ssh_address;
             connection->key = key;
             pthread_create(&tid, 0, server_thread, (void *)connection);
             pthread_detach(tid);
-        } else {
-            free(connection);
         }
+        // To do: When to free connection?
     }
 }
 
@@ -262,10 +247,10 @@ void client_side_proxy(struct hostent *destination_host, int destination_port, c
 
 int main(int argc, char *argv[]) {
     int option, server_mode = 0, listen_port, destination_port;
-    char *keyfile = NULL;
-    char *keybuffer;
+    char *keyfile = NULL, *keybuffer;
     struct hostent *destination_host;
 
+    /* Get options from command line arguments */
     while ((option = getopt(argc, argv, "l:k:")) != -1) {
         switch (option) {
             case 'l':
@@ -280,6 +265,7 @@ int main(int argc, char *argv[]) {
         }
     }
 
+    // Get destination host and port number
     if (optind == argc - 2) {
         if ((destination_host = gethostbyname(argv[optind])) == 0) {
             fprintf(stderr, "%s: Invalid destination specified\n", argv[0]);
@@ -302,7 +288,7 @@ int main(int argc, char *argv[]) {
     }
 
     if (server_mode == 1) {
-        server_side_proxy(listen_port, destination_host, destination_port, keybuffer);
+        server_side_reverse_proxy(listen_port, destination_host, destination_port, keybuffer);
     } else {
         client_side_proxy(destination_host, destination_port, keybuffer);
     }
