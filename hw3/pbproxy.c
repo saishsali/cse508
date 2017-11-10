@@ -1,5 +1,7 @@
-// http://docs.huihoo.com/doxygen/openssl/1.0.1c/include_2openssl_2aes_8h.html
-
+/*
+    References:
+    -  http://docs.huihoo.com/doxygen/openssl/1.0.1c/include_2openssl_2aes_8h.html
+*/
 #include <stdio.h>
 #include <unistd.h>
 #include <netdb.h>
@@ -20,7 +22,7 @@ struct ctr_state {
 struct proxy_connection {
     int sock_fd;
     const char *key;
-    struct sockaddr_in ssh_address;
+    struct sockaddr_in server_address;
 };
 
 /* https://stackoverflow.com/questions/3141860/aes-ctr-256-encryption-mode-of-operation-on-openssl */
@@ -36,7 +38,6 @@ void init_ctr(struct ctr_state *state, const unsigned char iv[]) {
     memcpy(state->ivec, iv, 8);
 }
 
-/* https://stackoverflow.com/questions/14002954/c-programming-how-to-read-the-whole-file-contents-into-a-buffer */
 char *read_keyfile(char *keyfile) {
     FILE *fp = fopen(keyfile, "r");
 
@@ -59,59 +60,65 @@ char *read_keyfile(char *keyfile) {
 void send_data(int sock_fd, AES_KEY aes_key, char buffer[], int size) {
     struct ctr_state state;
     unsigned char iv[8];
+    unsigned char encryption[size];
+    int encrypted_data_size = size + 8;
+    char encrypted_data[encrypted_data_size];
+
+    write(sock_fd, &encrypted_data_size, sizeof(encrypted_data_size));
 
     if(!RAND_bytes(iv, 8)) {
         fprintf(stderr, "Error generating random bytes for IV\n");
         exit(EXIT_FAILURE);
     }
-
-    char encrypted_data[size + 8];
     memcpy(encrypted_data, iv, 8);
 
-    unsigned char encryption[size];
     init_ctr(&state, iv);
     AES_ctr128_encrypt(buffer, encryption, size, &aes_key, state.ivec, state.ecount, &state.num);
     memcpy(encrypted_data + 8, encryption, size);
-
     write(sock_fd, encrypted_data, size + 8);
 }
 
-void receive_data(int fd, AES_KEY aes_key, char buffer[], int size) {
+void receive_data(int sock_fd, int fd, AES_KEY aes_key, int num_bytes) {
     struct ctr_state state;
     unsigned char iv[8];
+    unsigned char decrypted_data[num_bytes - 8];
+    char buffer[BUFFER_SIZE], buffer_blocks[BUFFER_SIZE];
+    int bytes_read = 0, count;
+
+    while (bytes_read < num_bytes) {
+        count = read(sock_fd, buffer_blocks, num_bytes);
+        if (count > 0) {
+            memcpy(buffer + bytes_read, buffer_blocks, count);
+            bytes_read += count;
+        }
+    }
 
     memcpy(iv, buffer, 8);
     init_ctr(&state, iv);
-
-    unsigned char decrypted_data[size - 8];
-
-    AES_ctr128_encrypt(buffer + 8, decrypted_data, size - 8, &aes_key, state.ivec, state.ecount, &state.num);
-
-    write(fd, decrypted_data, size - 8);
+    AES_ctr128_encrypt(buffer + 8, decrypted_data, num_bytes - 8, &aes_key, state.ivec, state.ecount, &state.num);
+    write(fd, decrypted_data, num_bytes - 8);
 }
 
-void* server_thread(void *args) {
+void *server_thread(void *args) {
     struct proxy_connection *connection = (struct proxy_connection *)args;
     struct sockaddr_in address;
-    int ssh_sock_fd, n, ssh_conn = 0;
+    int server_sock_fd, n, server_connection = 0, count;
 
-    printf("Server thread started\n");
-
-    if ((ssh_sock_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
-        fprintf(stderr, "SSH socket creation failed\n");
+    if ((server_sock_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+        fprintf(stderr, "Socket creation failed\n");
         pthread_exit(0);
     }
 
-    if (connect(ssh_sock_fd, (struct sockaddr *)&connection->ssh_address, sizeof(connection->ssh_address)) < 0) {
-        fprintf(stderr, "SSH connection failed\n");
+    if (connect(server_sock_fd, (struct sockaddr *)&connection->server_address, sizeof(connection->server_address)) < 0) {
+        fprintf(stderr, "Connection failed\n");
         pthread_exit(0);
     }
 
     int flags = fcntl(connection->sock_fd, F_GETFL, 0);
     fcntl(connection->sock_fd, F_SETFL, flags | O_NONBLOCK);
 
-    flags = fcntl(ssh_sock_fd, F_GETFL, 0);
-    fcntl(ssh_sock_fd, F_SETFL, flags | O_NONBLOCK);
+    flags = fcntl(server_sock_fd, F_GETFL, 0);
+    fcntl(server_sock_fd, F_SETFL, flags | O_NONBLOCK);
 
     char buffer[BUFFER_SIZE];
     AES_KEY aes_key;
@@ -122,56 +129,56 @@ void* server_thread(void *args) {
     }
 
     while (1) {
-        while ((n = read(connection->sock_fd, buffer, BUFFER_SIZE)) > 0) {
-            receive_data(ssh_sock_fd, aes_key, buffer, n);
-            // write(ssh_sock_fd, buffer, n);
-            if (n < BUFFER_SIZE)
-                break;
+        while (read(connection->sock_fd, &count, sizeof(count)) > 0) {
+            // receive_data(server_sock_fd, aes_key, buffer, n);
+            receive_data(connection->sock_fd, server_sock_fd, aes_key, count);
+            // write(server_sock_fd, buffer, n);
         }
 
-        while ((n = read(ssh_sock_fd, buffer, BUFFER_SIZE)) >= 0) {
+        while ((n = read(server_sock_fd, buffer, BUFFER_SIZE)) >= 0) {
             if (n > 0) {
                 send_data(connection->sock_fd, aes_key, buffer, n);
                 // write(connection->sock_fd, buffer, n);
             }
 
-            if (ssh_conn == 0 && n == 0) {
-                ssh_conn = 1;
+            if (server_connection == 0 && n == 0) {
+                server_connection = 1;
             }
 
             if (n < BUFFER_SIZE)
                 break;
         }
 
-        if (ssh_conn == 1)
+        if (server_connection == 1)
             break;
     }
+
     printf("Server thread Finished\n");
 }
 
 void server_side_reverse_proxy(int listen_port, struct hostent *destination_host, int destination_port, char *key) {
     int sock_fd, new_socket, n, opt = 1;
-    struct sockaddr_in address, ssh_address;
-    int addr_len = sizeof(address);
+    struct sockaddr_in client_address, server_address;
+    int addr_len = sizeof(client_address);
 
     if ((sock_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
         fprintf(stderr, "Socket creation failed\n");
         exit(EXIT_FAILURE);
     }
-    address.sin_family = AF_INET;
-    address.sin_addr.s_addr = INADDR_ANY;
-    address.sin_port = htons(listen_port);
+    client_address.sin_family = AF_INET;
+    client_address.sin_addr.s_addr = INADDR_ANY;
+    client_address.sin_port = htons(listen_port);
 
-    ssh_address.sin_family = AF_INET;
-    ssh_address.sin_addr.s_addr = ((struct in_addr *)(destination_host->h_addr))->s_addr;
-    ssh_address.sin_port = htons(destination_port);
+    server_address.sin_family = AF_INET;
+    server_address.sin_addr.s_addr = ((struct in_addr *)(destination_host->h_addr))->s_addr;
+    server_address.sin_port = htons(destination_port);
 
     if (setsockopt(sock_fd, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, &opt, sizeof(opt))) {
         fprintf(stderr, "Reuse of address/port failed\n");
         exit(EXIT_FAILURE);
     }
 
-    if (bind(sock_fd, (struct sockaddr *)&address, sizeof(address)) < 0) {
+    if (bind(sock_fd, (struct sockaddr *)&client_address, sizeof(client_address)) < 0) {
         fprintf(stderr, "Binding failed\n");
         exit(EXIT_FAILURE);
     }
@@ -186,8 +193,8 @@ void server_side_reverse_proxy(int listen_port, struct hostent *destination_host
 
     while (1) {
         connection = (struct proxy_connection *)malloc(sizeof(struct proxy_connection));
-        if ((connection->sock_fd = accept(sock_fd, (struct sockaddr *)&address, (socklen_t *)&addr_len)) > 0) {
-            connection->ssh_address = ssh_address;
+        if ((connection->sock_fd = accept(sock_fd, (struct sockaddr *)&client_address, (socklen_t *)&addr_len)) > 0) {
+            connection->server_address = server_address;
             connection->key = key;
             pthread_create(&tid, 0, server_thread, (void *)connection);
             pthread_detach(tid);
@@ -197,7 +204,7 @@ void server_side_reverse_proxy(int listen_port, struct hostent *destination_host
 }
 
 void client_side_proxy(struct hostent *destination_host, int destination_port, char *key) {
-    int sock_fd, n;
+    int sock_fd, n, count;
     struct sockaddr_in address;
 
     if ((sock_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
@@ -232,15 +239,11 @@ void client_side_proxy(struct hostent *destination_host, int destination_port, c
         while ((n = read(STDIN_FILENO, buffer, BUFFER_SIZE)) > 0) {
             send_data(sock_fd, aes_key, buffer, n);
             // write(sock_fd, buffer, n);
-            if (n < BUFFER_SIZE)
-                break;
         }
 
-        while ((n = read(sock_fd, buffer, BUFFER_SIZE)) > 0) {
-            receive_data(STDOUT_FILENO, aes_key, buffer, n);
+        while (read(sock_fd, &count, sizeof(count)) > 0) {
+            receive_data(sock_fd, STDOUT_FILENO, aes_key, count);
             // write(STDOUT_FILENO, buffer, n);
-            if (n < BUFFER_SIZE)
-                break;
         }
     }
 }
