@@ -1,0 +1,68 @@
+CSE508: Network Security, Fall 2017
+Homework 3: Plugboard Proxy
+-------------------------------------------------------------------------------
+1) Test environment:
+    Ubuntu 16.04.3 LTS (Linux 4.4.0-97-generic x86_64)
+
+2) Compiler and its version:
+    gcc version 5.4.0
+
+3) Command line with options:
+    a) Server:
+        ./pbproxy -l <source_port> -k <keyfile> <destination> <port>
+        -l  Reverse-proxy mode: listen for inbound connections on
+            <source_port> and relay them to <destination>:<port>
+
+        -k  Use the symmetric key contained in <keyfile>
+            (as a hexadecimal string)
+
+    Example:
+        ./pbproxy -l 4321 -k keyfile.txt localhost 22
+
+    b) Client:
+        ./pbproxy -k <keyfile> <destination> <port>
+        <destination>:<port>  Host name / IP address and port number of the
+                              proxy server to connect to
+
+        <keyfile>             File containing symmetric key
+
+    Example: ssh -o "ProxyCommand ./pbproxy -k mykey localhost 4321" localhost
+
+4) Design:
+    - It consists of pbproxy.c, Makefile and mykey
+
+    - The program execution begins with identifying if pbproxy is acting as
+    a client-side proxy or as server-side reverse proxy based on -l option.
+
+    - Server-side reverse proxy:
+        - Create a socket
+        - Bind the socket to the port number specified and to all interfaces
+        - Listen: Wait for clients to approach the server to make a connection
+        - Accept: Establish connection between client and server
+        - Spawn threads to support multiple concurrent connections
+        - For each connection, create a socket and bind it to the server's ip
+        address and port number
+        - Set AES encryption key using symmetric key specified in the <keyfile>
+        - Read data from the client's socket, decrypt it and write it to the
+        server's socket
+        - Generate random Initialization Vector (IV) and initialize counter for
+        each encryption
+        - Read data from the server's socket, encrypt it and write it to the
+        client's socket
+
+    - Client-side proxy:
+        - Create a socket
+        - Connect the socket to proxy server's address and port number
+        - Set AES encryption key using symmetric key specified in the <keyfile>
+        - Generate random Initialization Vector (IV) and initialize counter for
+        each encryption
+        - Read data from stdin, encrypt it and write it to the
+        server's socket
+        - Read data from the server's socket, decrypt it and write it stdout
+
+5) References:
+    - http://www.geeksforgeeks.org/socket-programming-cc/
+    - https://computing.llnl.gov/tutorials/pthreads/
+    - http://docs.huihoo.com/doxygen/openssl/1.0.1c/include_2openssl_2aes_8h.html
+    - https://stackoverflow.com/questions/3141860/aes-ctr-256-encryption-mode-of-operation-on-openssl
+    - https://stackoverflow.com/questions/14002954/c-programming-how-to-read-the-whole-file-contents-into-a-buffer
