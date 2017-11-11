@@ -1,7 +1,3 @@
-/*
-    References:
-    -  http://docs.huihoo.com/doxygen/openssl/1.0.1c/include_2openssl_2aes_8h.html
-*/
 #include <stdio.h>
 #include <unistd.h>
 #include <netdb.h>
@@ -38,6 +34,7 @@ void init_ctr(struct ctr_state *state, const unsigned char iv[]) {
     memcpy(state->ivec, iv, 8);
 }
 
+/* Read keyfile containing symmetric key */
 char *read_keyfile(char *keyfile) {
     FILE *fp = fopen(keyfile, "r");
 
@@ -57,6 +54,7 @@ char *read_keyfile(char *keyfile) {
     return buffer;
 }
 
+/* Encrypt and send data */
 void send_data(int sock_fd, AES_KEY aes_key, char buffer[], int size) {
     struct ctr_state state;
     unsigned char iv[8];
@@ -78,6 +76,7 @@ void send_data(int sock_fd, AES_KEY aes_key, char buffer[], int size) {
     write(sock_fd, encrypted_data, size + 8);
 }
 
+/* Receive and decrypt data */
 void receive_data(int sock_fd, int fd, AES_KEY aes_key, int num_bytes) {
     struct ctr_state state;
     unsigned char iv[8];
@@ -99,6 +98,7 @@ void receive_data(int sock_fd, int fd, AES_KEY aes_key, int num_bytes) {
     write(fd, decrypted_data, num_bytes - 8);
 }
 
+/* Thread for communication between client and server */
 void *server_thread(void *args) {
     struct proxy_connection *connection = (struct proxy_connection *)args;
     struct sockaddr_in address;
@@ -130,32 +130,26 @@ void *server_thread(void *args) {
 
     while (1) {
         while (read(connection->sock_fd, &count, sizeof(count)) > 0) {
-            // receive_data(server_sock_fd, aes_key, buffer, n);
             receive_data(connection->sock_fd, server_sock_fd, aes_key, count);
-            // write(server_sock_fd, buffer, n);
         }
 
         while ((n = read(server_sock_fd, buffer, BUFFER_SIZE)) >= 0) {
             if (n > 0) {
                 send_data(connection->sock_fd, aes_key, buffer, n);
-                // write(connection->sock_fd, buffer, n);
             }
 
             if (server_connection == 0 && n == 0) {
                 server_connection = 1;
             }
-
-            if (n < BUFFER_SIZE)
-                break;
         }
 
         if (server_connection == 1)
             break;
     }
-
-    printf("Server thread Finished\n");
 }
 
+
+/* Pbproxy acting as a server side reverse proxy */
 void server_side_reverse_proxy(int listen_port, struct hostent *destination_host, int destination_port, char *key) {
     int sock_fd, new_socket, n, opt = 1;
     struct sockaddr_in client_address, server_address;
@@ -199,10 +193,10 @@ void server_side_reverse_proxy(int listen_port, struct hostent *destination_host
             pthread_create(&tid, 0, server_thread, (void *)connection);
             pthread_detach(tid);
         }
-        // To do: When to free connection?
     }
 }
 
+/* Pbproxy acting as a client side proxy */
 void client_side_proxy(struct hostent *destination_host, int destination_port, char *key) {
     int sock_fd, n, count;
     struct sockaddr_in address;
@@ -238,16 +232,15 @@ void client_side_proxy(struct hostent *destination_host, int destination_port, c
     while (1) {
         while ((n = read(STDIN_FILENO, buffer, BUFFER_SIZE)) > 0) {
             send_data(sock_fd, aes_key, buffer, n);
-            // write(sock_fd, buffer, n);
         }
 
         while (read(sock_fd, &count, sizeof(count)) > 0) {
             receive_data(sock_fd, STDOUT_FILENO, aes_key, count);
-            // write(STDOUT_FILENO, buffer, n);
         }
     }
 }
 
+/* Program execution begins here */
 int main(int argc, char *argv[]) {
     int option, server_mode = 0, listen_port, destination_port;
     char *keyfile = NULL, *keybuffer;
