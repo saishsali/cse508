@@ -17,7 +17,7 @@ Homework 3: Plugboard Proxy
             (as a hexadecimal string)
 
     Example:
-        ./pbproxy -l 4321 -k keyfile.txt localhost 22
+        ./pbproxy -l 4321 -k mykey localhost 22
 
     b) Client:
         ./pbproxy -k <keyfile> <destination> <port>
