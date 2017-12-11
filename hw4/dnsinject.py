@@ -10,7 +10,7 @@ ip_address = None
 
 def get_spoofed_ip(packet):
     spoofed_ip = None
-    if UDP in packet and packet.dport == 53 and DNSRR not in packet:
+    if DNSRR not in packet:
         print "\nDNS query for " + packet[DNSQR].qname
         if len(hosts) == 0:
             spoofed_ip = ip_address
@@ -79,6 +79,11 @@ def main():
         ip_address = ni.ifaddresses(conf.iface)[2][0]['addr']
     else:
         ip_address = ni.ifaddresses(args.i)[2][0]['addr']
+
+    if args.expression is None:
+        args.expression = "udp port 53"
+    else:
+        args.expression += " and udp port 53"
 
     sniff(iface = args.i, filter = args.expression, prn = process_packet)
 
