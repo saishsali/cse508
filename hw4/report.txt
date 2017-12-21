@@ -1,0 +1,134 @@
+CSE508: Network Security, Fall 2017
+Homework 4: DNS Packet Injection
+-------------------------------------------------------------------------------
+------------------
+Part 1: DNS Inject
+------------------
+1) Installation
+    - pip install scapy
+    - pip install netifaces
+
+2) How to compile
+    sudo python dnsinject.py
+
+3) Commands to run program
+    sudo dnsinject.py [-i interface] [-h hostnames] expression
+
+    -i  Listen on network device <interface> (e.g., eth0). If not specified,
+        dnsinject should select a default interface to listen on. The same
+        interface should be used for packet injection.
+
+    -h  Read a list of IP address and hostname pairs specifying the hostnames
+        to be hijacked. If '-h' is not specified, dnsinject should forge replies
+        for all observed requests with the local machine's IP address as an
+        answer.
+
+    Examples:
+        - sudo python dnsinject.py
+        - sudo python dnsinject.py -i enp0s3
+        - sudo python dnsinject.py -i enp0s3 -h hostnames
+        - sudo python dnsinject.py -i enp0s3 -h hostnames "ip src 172.24.24.140"
+
+4) Design:
+    - Sniff packets on specified interface in promiscous mode. If interface is
+    not specified, select a default interface to sniff on.
+    - Forge replies for DNS requests with hostname in the specified file. If
+    hostnames file is not specified, forge replies for all observed requests
+    with the local machine's IP address as an answer.
+    - The filter expression specified is combined with UDP protocol and DNS
+    port filter.
+    - A callback function is invoked for matching interface and filter
+    expression.
+    - If the DNS query corresponds to the hostname specified, a forged packet
+    with appropriate layers is created using scapy APIs and sent to the
+    victim as a response.
+
+5) Test environment:
+    Ubuntu 16.04.3 LTS (Linux 4.10.0-28-generic x86_64)
+
+6) Language and version used
+    python 2.7.12
+
+------------------
+Part 2: DNS Detect
+------------------
+1) Installation
+    pip install scapy
+
+2) How to compile
+    sudo python dnsdetect.py [-i interface] [-h hostnames] expression
+
+3) Commands to run program
+    sudo python dnsdetect.py [-i interface] [-r tracefile] expression
+
+    -i  Listen on network device <interface> (e.g., eth0). If not specified,
+        the program should select a default interface to listen on.
+
+    -r  Read packets from <tracefile> (tcpdump format). Useful for detecting
+        DNS poisoning attacks in existing network traces.
+
+    Examples:
+        - sudo python dnsdetect.py
+        - sudo python dnsdetect.py -i enp0s3
+        - sudo python dnsdetect.py -r hw4.pcap
+        - sudo python dnsdetect.py -i enp0s3 "ip dst 172.24.24.140"
+
+4) Design:
+    - Sniff packets on specified interface or tracefile in promiscous mode. If
+    interface is not specified, select a default interface to sniff on.
+    - A callback function is invoked for matching interface and filter
+    expression.
+    - The callback function uses a deque data structure to store last 10
+    received packets.
+    - A comparison check is perforned on all fields to detect if the packet is
+    a forged response.
+    - A packet is considered as a forged response if the received packet has same
+    destination IP, source port, destination port, transaction ID, request URL
+    but different response IP as compared to a packet in the queue.
+    - Once an attack is detected, dnsdetect prints to stdout a detailed alert
+    containing a printout of both the spoofed and legitimate responses.
+
+5) False positives:
+    The DNS poisoning attack detector takes care of the false positives by
+    making sure that the new packet received is compared only with last the 10
+    received packets. This makes sure that legitimate consecutive DNS responses
+    with different IP addresses for the same hostname (due to round robin DNS
+    load balancing) are not detected as forged responses (because of the
+    smaller queue size). If we increase the size of the queue, there is a high
+    probability that legitimate DNS response will be marked as a forged
+    response.
+
+6) Test environment:
+    Ubuntu 16.04.3 LTS (Linux 4.10.0-28-generic x86_64)
+
+7) Language and version used
+    python 2.7.12
+
+8) Detection output for the attached pcap trace file
+
+    bash# sudo python dnsdetect.py -r hw4.pcap
+    Starting DNS poisoning attack detector
+    Sniffing on tracefile hw4.pcap
+
+    2017-12-10 17:21:49.365554 DNS poisoning attempt detected
+    TXID 43391 Request URL www.cs.stonybrook.edu
+    Answer1 [ec2-107-22-178-157.compute-1.amazonaws.com.]
+    Answer2 [192.168.66.6]
+
+    2017-12-10 17:22:00.425580 DNS poisoning attempt detected
+    TXID 51184 Request URL www.example.com
+    Answer1 [10.6.7.8]
+    Answer2 [93.184.216.34]
+
+    2017-12-10 17:22:13.526807 DNS poisoning attempt detected
+    TXID 5854 Request URL www.practo.com
+    Answer1 [10.6.6.6]
+    Answer2 [www.practo.com.cdn.cloudflare.net.]
+
+-----------
+References
+-----------
+    - http://scapy.readthedocs.io/en/latest/
+    - https://thepacketgeek.com/series/building-network-tools-with-scapy/
+    - https://docs.python.org/2/howto/sockets.html
+    - https://docs.python.org/2/
